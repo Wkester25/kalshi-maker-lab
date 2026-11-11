@@ -6,7 +6,7 @@ Wants=network-online.target
 [Service]
 User=__USER__
 WorkingDirectory=__DIR__
-# Paper mode. To unlock the live switch, add --allow-live here deliberately, then: systemctl restart kalshi-maker-lab
+# Live trading is switched on and off from the dashboard, not here.
 ExecStart=__DIR__/.venv/bin/python run.py
 Restart=always
 RestartSec=5

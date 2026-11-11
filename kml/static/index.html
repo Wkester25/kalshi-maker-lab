@@ -29,6 +29,11 @@ input,select{background:#0e1116;color:var(--text);border:1px solid var(--line);b
 input[type=checkbox]{width:auto}
 label{display:flex;flex-direction:column;gap:3px;font-size:12px;color:var(--dim)}
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px 14px}
+.switch{display:flex;align-items:center;gap:9px;background:#161b22;border:1px solid var(--line);border-radius:999px;padding:4px 12px 4px 5px;cursor:pointer;font:inherit;color:var(--text)}
+.switch .knob{width:38px;height:22px;border-radius:999px;background:#2a323e;position:relative;transition:background .15s}
+.switch .knob::after{content:"";position:absolute;top:3px;left:3px;width:16px;height:16px;border-radius:50%;background:#8a95a3;transition:left .15s,background .15s}
+.switch.on{border-color:#7a2e25;background:#2a1513}.switch.on .knob{background:var(--bad)}.switch.on .knob::after{left:19px;background:#fff}
+.switch b{font-weight:600}
 .banner{border-left:3px solid var(--warn);background:#221c10;padding:8px 12px;border-radius:4px;margin-bottom:8px}
 .banner.red{border-color:var(--bad);background:#241311}
 dialog{background:var(--panel);color:var(--text);border:1px solid var(--line);border-radius:10px;padding:18px;max-width:640px;width:92vw}
@@ -51,8 +56,8 @@ pre{white-space:pre-wrap;font:12.5px/1.5 var(--mono);margin:0}
   <button id="btnCard">Scorecard</button>
   <button onclick="location.href='/keys'">API keys</button>
   <button id="btnSettings">Settings</button>
-  <button id="btnLive" class="primary" hidden>Turn live trading on</button>
-  <button id="btnHalt" class="danger" hidden>Stop live trading</button>
+  <button id="liveSw" class="switch" title="Live trading"><span class="knob"></span><span>Live trading <b id="liveTxt">OFF</b></span></button>
+  <button id="btnHalt" class="danger" hidden title="Switch live trading off and cancel every open order on the account">Stop all</button>
   <button id="btnOut">Sign out</button>
 </header>
 <main>
@@ -91,16 +96,18 @@ function statCell(s){ if (!s || !s.n) return [h('td',{class:'num dim'},'0'), h('
 
 function render(s){
   ST = s; const f = s.feed, lv = s.live;
-  const liveOn = lv.allowed_by_flag && lv.enabled && !lv.halt;
-  $('mode').textContent = liveOn ? 'LIVE ON' : lv.allowed_by_flag ? 'PAPER (live unlocked)' : 'PAPER';
+  const b = [];
+  const liveOn = lv.enabled && !lv.halt;
+  $('mode').textContent = liveOn ? 'LIVE' : 'PAPER';
   $('mode').className = 'pill ' + (liveOn ? 'live' : 'paper');
-  $('btnLive').hidden = !(lv.allowed_by_flag && !liveOn); $('btnHalt').hidden = !lv.allowed_by_flag;
+  $('liveSw').classList.toggle('on', liveOn); $('liveTxt').textContent = liveOn ? 'ON' : 'OFF';
+  $('btnHalt').hidden = !liveOn && !s.open_trades.some(t => t.mode === 'live');
+  if (liveOn && !lv.rules_marked.length) b.push(h('div',{class:'banner'}, 'Live trading is on, but no rule is marked "Trade live", so nothing trades for real. Use Edit on a rule to mark it.'));
   $('feed').textContent = f.source === 'ws' ? (f.ws && f.ws.connected ? `WebSocket, ${f.ws.msgs.toLocaleString()} msgs` : 'WebSocket DOWN') : 'REST polling';
   $('feed').className = (f.source === 'ws' && !(f.ws && f.ws.connected)) ? 'bad' : '';
   $('clock').textContent = f.source === 'ws' ? (f.clock_offset_ms >= 0 ? '+' : '') + f.clock_offset_ms + ' ms' : 'not measured';
   $('rows').textContent = f.record_mode === 'off' ? 'recording off' : f.recorder_rows.toLocaleString();
   $('up').textContent = dur(s.uptime);
-  const b = [];
   if (lv.halt) b.push(h('div',{class:'banner red'}, 'Live trading halted: ' + lv.halt));
   if (!f.keys) b.push(h('div',{class:'banner'}, 'No API key loaded. Running on public REST polling: slower, and no settlement-index feed. ', h('a',{href:'/keys', style:'color:var(--accent)'}, 'Add your Kalshi API key')));
   if (f.audit.mismatch >= 3) b.push(h('div',{class:'banner red'}, `WebSocket book disagrees with the REST book in ${f.audit.mismatch} of ${f.audit.checked} checks. Last: ${f.audit.last}`));
@@ -165,7 +172,14 @@ $('btnSettings').onclick = async () => { CFG = await api('/api/config'); const f
       try { await api('/api/settings', body); $('dlgSettings').close(); } catch(e) { $('setErr').textContent = e.message; } }}, 'Save')));
   $('dlgSettings').showModal(); };
 $('btnCard').onclick = async () => { $('card').textContent = 'Building...'; $('dlgCard').showModal(); try { $('card').textContent = (await api('/api/scorecard', {})).text; } catch(e) { $('card').textContent = e.message; } };
-$('btnLive').onclick = async () => { if (!confirm('Turn LIVE trading on? Rules marked "Trade live" will place real orders from the next window.')) return; try { await api('/api/live', {enabled:true, clear_halt:true}); refresh(); } catch(e) { alert(e.message); } };
+$('liveSw').onclick = async () => {
+  const on = ST && ST.live.enabled && !ST.live.halt;
+  if (on) { if (!confirm('Switch live trading OFF? Resting live orders are cancelled now; open positions are held to settlement.')) return;
+    try { const r = await api('/api/live', {enabled:false}); refresh(); } catch(e) { alert(e.message); } return; }
+  const marked = ST ? ST.live.rules_marked : [];
+  const pw = prompt('Switch live trading ON?\n\nReal orders from the next window for: ' + (marked.length ? marked.join(', ') : 'no rule yet (mark rules with "Trade live")') + '\n\nEnter your web page password to confirm:');
+  if (!pw) return;
+  try { const r = await api('/api/live', {enabled:true, password:pw}); alert(r.note); refresh(); } catch(e) { alert(e.message); } };
 $('btnHalt').onclick = async () => { if (!confirm('Stop live trading and cancel every open order?')) return; try { const r = await api('/api/halt', {}); alert(r.note); refresh(); } catch(e) { alert(e.message); } };
 $('btnOut').onclick = async () => { try { await api('/api/logout', {}); } catch(e) {} location.href = '/login'; };
 refresh(); slow(); setInterval(refresh, 2000); setInterval(slow, 10000);

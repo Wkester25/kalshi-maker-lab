@@ -1,7 +1,6 @@
-"""Real orders through Kalshi's REST API. OFF unless three switches are all on (see README):
-  1. the program was started with --allow-live
-  2. "live.enabled" is true in the settings
-  3. the individual rule has "live": true
+"""Real orders through Kalshi's REST API. OFF unless both switches are on:
+  1. the live-trading switch on the dashboard ("live.enabled" in config.json)
+  2. "Trade live" on the individual rule
 
 The order sequences are the ones the Late Maker bot used with real money: post-only resting buy, cancel and
 confirm (counting fills that landed first), reduce-only IOC sell for the stop. If a cancel cannot be confirmed,

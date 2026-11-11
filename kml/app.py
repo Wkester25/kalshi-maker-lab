@@ -18,15 +18,15 @@ ROOT = Path(__file__).resolve().parent.parent
 
 
 class App:
-    def __init__(self, cfg: dict, allow_live: bool = False):
-        self.cfg, self.allow_live = cfg, allow_live
+    def __init__(self, cfg: dict):
+        self.cfg = cfg
         self.client = Client(cfg.get("env", "real"))
         self.store = Store(ROOT / "data" / "lab.db")
         self.rec = Recorder(cfg, ROOT)
         self.offset = 0.0                       # exchange clock minus this machine's clock, seconds
         self._off_samples: list[tuple[float, float]] = []
         self.live = LiveExec(self.client) if self.client.has_keys else None
-        self.engine = Engine(cfg, self.store, now=self.exch_now, live_exec=self.live, allow_live=allow_live)
+        self.engine = Engine(cfg, self.store, now=self.exch_now, live_exec=self.live)
         if self.live:
             self.live.engine = self.engine
         self.ws = None
@@ -346,7 +346,7 @@ class App:
         else:
             tasks.append(self.rest_feed())
         self.event("info", f"started: source {self.source}, live trading "
-                           f"{'ALLOWED by --allow-live' if self.allow_live else 'locked off (no --allow-live)'}")
+                           f"{'ON (dashboard switch)' if self.cfg['live'].get('enabled') else 'off'}")
         try:
             await asyncio.gather(*tasks)
         finally:

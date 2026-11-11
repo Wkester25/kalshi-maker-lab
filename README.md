@@ -65,13 +65,16 @@ address is printed when the program starts. Details:
 
 This page can change trading settings, so pick a real password.
 
-## Trading is off until three switches are on
+## Live trading
 
-1. Start the program with `--allow-live` (on the server: edit the service file and restart).
-2. Turn live trading on from the web page (the button only appears after step 1).
-3. Tick "Trade live" on an individual rule.
+Live trading is a switch at the top of the dashboard, off by default. Real orders need both:
 
-Without all three, every rule trades on paper only. Taker rules are paper only in this version. Limits that
+1. The **Live trading** switch on (it asks for your web password, and needs an API key loaded).
+2. **Trade live** ticked on the rule (Edit on the rule's row).
+
+Everything else keeps trading on paper alongside. Switching on takes effect from the next 15-minute window.
+Switching off cancels resting live orders at once and holds any open positions to settlement. **Stop all**
+also sends Kalshi a cancel-all for the account. The switch is remembered across restarts. Taker rules are paper only in this version. Limits that
 apply to live trading: a cap on money at risk at once (10% of the stated bankroll), a daily loss limit, a kill
 switch per rule (down $6 per contract), and a halt if a cancel cannot be confirmed.
 

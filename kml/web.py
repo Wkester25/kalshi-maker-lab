@@ -126,7 +126,8 @@ def make_app(app_obj) -> web.Application:
         s = eng.status()
         s["feed"] = app_obj.feed_status()
         s["scoreboard"] = scoreboard()
-        s["live"] = {"allowed_by_flag": app_obj.allow_live, "enabled": bool(cfg["live"].get("enabled")),
+        s["live"] = {"enabled": bool(cfg["live"].get("enabled")),
+                     "rules_marked": [r["id"] for r in cfg["rules"] if r.get("live") and r.get("enabled")],
                      "halt": eng.live_halt, "has_keys": app_obj.client.has_keys}
         s["open_trades"] = store.open_trades()
         return web.json_response(s)
@@ -190,23 +191,27 @@ def make_app(app_obj) -> web.Application:
     async def post_live(req):
         body = await req.json()
         on = bool(body.get("enabled"))
-        if on and not app_obj.allow_live:
-            return web.json_response({"error": "live trading is locked: restart the program with --allow-live"},
-                                     status=403)
-        if on and not app_obj.client.has_keys:
-            return web.json_response({"error": "no API keys loaded"}, status=400)
-        cfg["live"]["enabled"] = on
-        if on and body.get("clear_halt"):
+        if on:
+            if not password_ok(req, body):
+                return web.json_response({"error": "wrong password (or too many attempts: wait five minutes)"},
+                                         status=403)
+            if not app_obj.client.has_keys:
+                return web.json_response({"error": "no API key loaded: add one on the API keys page"}, status=400)
             eng.live_halt = None
+        cfg["live"]["enabled"] = on
         persist()
-        store.event("halt" if not on else "info", f"live trading switched {'ON' if on else 'OFF'} from the web page")
-        return web.json_response({"ok": True, "note": "applies to windows that open from now on"})
+        if not on:
+            eng.stop_live_orders("live trading switched off")
+        store.event("halt" if not on else "info", f"live trading switched {'ON' if on else 'OFF'} from the dashboard")
+        return web.json_response({"ok": True, "note": "Real orders start with the next window." if on else
+                                  "Resting live orders cancelled; open positions are held to settlement."})
 
     async def post_halt(req):
         eng.halt_live("stopped from the web page")
         cfg["live"]["enabled"] = False
         persist()
-        note = await app_obj.live.cancel_everything() if app_obj.live and app_obj.allow_live else "no live orders"
+        eng.stop_live_orders("emergency stop")
+        note = await app_obj.live.cancel_everything() if app_obj.live else "no live orders"
         return web.json_response({"ok": True, "note": note})
 
     async def trades(req):

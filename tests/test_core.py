@@ -279,9 +279,16 @@ class TestFeedAndWeb(unittest.IsolatedAsyncioTestCase):
             hd = {"X-Token": tok}
             s = await (await c.get("/api/status", headers=hd)).json()
             self.assertEqual(s["markets"][0]["coin"], "BTC")
-            self.assertFalse(s["live"]["allowed_by_flag"])
-            r = await c.post("/api/live", json={"enabled": True}, headers=hd)
-            self.assertEqual(r.status, 403)                                  # locked without --allow-live
+            self.assertFalse(s["live"]["enabled"])
+            r = await c.post("/api/live", json={"enabled": True, "password": "wrong"}, headers=hd)
+            self.assertEqual(r.status, 403)                                  # switching on needs the password
+            import kml.config as CC
+            self.cfg["web"]["password_hash"] = CC.hash_password("right-pw")
+            r = await c.post("/api/live", json={"enabled": True, "password": "right-pw"}, headers=hd)
+            self.assertEqual(r.status, 400)                                  # and an API key
+            self.assertFalse(self.cfg["live"]["enabled"])
+            r = await c.post("/api/live", json={"enabled": False}, headers=hd)
+            self.assertEqual(r.status, 200)                                  # switching off never needs anything
             r = await c.post("/api/rule", json={"id": "crypto_99", "lo": 99.9, "hi": 99.0}, headers=hd)
             self.assertEqual(r.status, 400)
             r = await c.post("/api/rule", json={"id": "commodity_take98", "live": True}, headers=hd)

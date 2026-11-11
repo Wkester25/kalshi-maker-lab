@@ -4,7 +4,7 @@ It does no network I/O itself. Market data is pushed in (on_snapshot / on_delta 
 is injected, and live orders go through an executor object. That is what lets the same code be driven by the
 live WebSocket, by REST polling, or by a replay of recorded data.
 
-Every rule runs in paper mode unless live trading is switched on for it (three separate switches, see README).
+Every rule runs in paper mode unless the dashboard's live-trading switch is on AND the rule is marked "Trade live".
 Paper execution uses the fill model from the review:
   * an order goes live `place_latency_ms` after the decision, and a cancel takes `cancel_latency_ms`;
   * a trade THROUGH our price always fills us;
@@ -92,9 +92,9 @@ class State:
 
 
 class Engine:
-    def __init__(self, cfg: dict, store, now=time.time, live_exec=None, allow_live: bool = False):
+    def __init__(self, cfg: dict, store, now=time.time, live_exec=None):
         self.cfg, self.store, self.now = cfg, store, now
-        self.live_exec, self.allow_live = live_exec, allow_live
+        self.live_exec = live_exec
         self.markets: dict[str, Market] = {}
         self.by_coin: dict[str, Market] = {}
         self.states: dict[str, list[State]] = {}       # ticker -> states
@@ -109,7 +109,7 @@ class Engine:
         self.store.event(level, msg, self.now())
 
     def rule_mode(self, rule: dict) -> str:
-        live = (self.allow_live and self.live_exec is not None and self.cfg["live"].get("enabled")
+        live = (self.live_exec is not None and self.cfg["live"].get("enabled")
                 and rule.get("live") and rule["kind"] == "maker" and not self.live_halt)
         return "live" if live else "paper"
 
@@ -407,6 +407,16 @@ class Engine:
         if open_cost + n * px / 1000 > lv["bankroll_dollars"] * lv["tail_fraction"]:
             return "tail cap: open risk would exceed tail_fraction of the bankroll"
         return None
+
+    def stop_live_orders(self, why: str):
+        """Cancel every resting live order (positions are held to settlement)."""
+        now = self.now()
+        for sts in self.states.values():
+            for st in sts:
+                if st.mode == "live" and st.order and not st.busy:
+                    self._cancel(st, why, now)
+                if st.mode == "live" and not st.pos:
+                    st.done = True                       # no new live bids in this window
 
     def halt_live(self, why: str):
         if not self.live_halt:

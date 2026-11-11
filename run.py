@@ -4,7 +4,8 @@
   python run.py                 paper mode: records data, scores every rule, places no orders
   python run.py --setup         set the web login and whether the page is reachable on the local network
   python run.py --set-password  change the web password
-  python run.py --allow-live    also unlocks the live-trading switch on the web page (still off until you turn it on)
+
+Live trading is turned on and off with the switch on the dashboard.
 """
 from __future__ import annotations
 
@@ -88,7 +89,7 @@ async def main(args):
         first_pw = secrets.token_urlsafe(9)
         C.set_login(username=w.get("username", "admin"), password=first_pw)
         w["password_hash"] = C.load()["web"]["password_hash"]
-    app = App(cfg, allow_live=args.allow_live)
+    app = App(cfg)
     runner = web.AppRunner(make_app(app), access_log=None)
     await runner.setup()
     host, port = w["host"], int(w["port"])
@@ -103,8 +104,11 @@ async def main(args):
     else:
         print(f"  Sign in:   as {w.get('username', 'admin')}   (python run.py --set-password to change the password)")
     print(f"  Data:      {app.source} feed, recording {'on' if app.rec.on else 'off'}")
-    print("  Trading:   paper only" + ("  (live switch unlocked by --allow-live; it is still OFF until you turn it on)"
-                                        if args.allow_live else "  (live trading locked: no --allow-live)"))
+    if cfg["live"].get("enabled"):
+        marked = [r["id"] for r in cfg["rules"] if r.get("live") and r.get("enabled")]
+        print(f"  Trading:   LIVE switch is ON. Real orders for: {', '.join(marked) or 'no rule (none marked Trade live)'}")
+    else:
+        print("  Trading:   paper only (live switch on the dashboard is off)")
     if not app.client.has_keys:
         print(f"  Keys:      none loaded ({app.client.key_error}). Using public REST polling.")
     print("  Stop with Ctrl+C.\n", flush=True)
@@ -118,7 +122,6 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser(description="Kalshi Maker Lab")
     ap.add_argument("--setup", action="store_true", help="set the web login and local-network access, then exit")
     ap.add_argument("--set-password", action="store_true", help="change the web password, then exit")
-    ap.add_argument("--allow-live", action="store_true", help="unlock the live-trading switch (it still starts off)")
     ap.add_argument("--lan", action="store_true", help="listen on the local network for this run")
     ap.add_argument("--host", help="address for the web page (default from config.json)")
     ap.add_argument("--port", type=int, help="port for the web page (default 8787)")
