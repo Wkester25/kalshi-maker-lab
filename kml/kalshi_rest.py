@@ -516,3 +516,12 @@ class Client:
 
     def cancel_all(self):
         return self.request("DELETE", "/portfolio/events/orders")
+
+
+def key_info(pem: str) -> dict:
+    """Type and a short fingerprint of a private key, so a person can tell keys apart without seeing them.
+    Raises ValueError with a plain-English reason for files that aren't a usable private key."""
+    _, der = _pem_body(pem)
+    k = private_key(pem)
+    kind = f"RSA {k.bits}-bit" if isinstance(k, _PureRSA) else "Ed25519"
+    return {"type": kind, "fingerprint": hashlib.sha256(der).hexdigest()[:16]}

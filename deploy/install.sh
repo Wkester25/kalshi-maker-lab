@@ -30,7 +30,7 @@ if [ -t 0 ] && ! grep -q '"password_hash": "pbkdf2' config.json 2>/dev/null; the
 fi
 
 if [ ! -f keys.json ]; then
-  echo "No keys.json yet. Copy keys.example.json to keys.json and fill it in; until then the program uses public REST polling."
+  echo "No Kalshi API key yet: add it on the web page under 'API keys' (until then it uses public REST polling)."
 fi
 
 UNIT=/tmp/kalshi-maker-lab.service

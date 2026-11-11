@@ -323,6 +323,77 @@ class TestFeedAndWeb(unittest.IsolatedAsyncioTestCase):
             r = await c.post("/api/login", json={"username": "admin", "password": "correct horse"})
             self.assertEqual(r.status, 429)                                           # locked out after 5 misses
 
+    async def test_keys_api(self):
+        try:
+            from cryptography.hazmat.primitives import serialization
+            from cryptography.hazmat.primitives.asymmetric import rsa
+        except ImportError:
+            self.skipTest("needs the cryptography package to make a test key")
+        from aiohttp.test_utils import TestClient, TestServer
+        import kml.config as CC
+        import kml.kalshi_rest as KR
+        from kml.web import make_app
+        pem = rsa.generate_private_key(public_exponent=65537, key_size=2048).private_bytes(
+            serialization.Encoding.PEM, serialization.PrivateFormat.TraditionalOpenSSL,
+            serialization.NoEncryption()).decode()
+        pub = rsa.generate_private_key(public_exponent=65537, key_size=2048).public_key().public_bytes(
+            serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo).decode()
+        self.cfg["web"]["password_hash"] = CC.hash_password("pw-for-keys")
+        self.cfg["source"] = "ws"                                   # wants the WebSocket, running on REST (no keys)
+        kid = "a1b2c3d4-0000-4000-8000-123456789abc"
+        async with TestClient(TestServer(make_app(self.app))) as c:
+            hd = {"X-Token": self.cfg["web"]["token"]}
+            self.assertEqual((await c.get("/keys", allow_redirects=False)).status, 302)     # needs sign-in
+            self.assertEqual((await c.get("/keys", headers=hd)).status, 200)
+            d = await (await c.get("/api/keys", headers=hd)).json()
+            self.assertFalse(d["keys"]["real"]["present"])
+            self.assertFalse(d["program"]["has_keys"])
+            r = await c.post("/api/keys", json={"env": "real", "key_id": kid, "pem": pem, "password": "nope"}, headers=hd)
+            self.assertEqual(r.status, 403)
+            r = await c.post("/api/keys", json={"env": "real", "key_id": kid, "pem": pub, "password": "pw-for-keys"}, headers=hd)
+            self.assertEqual(r.status, 400)
+            self.assertIn("PUBLIC key", (await r.json())["error"])
+            r = await c.post("/api/keys", json={"env": "real", "key_id": "x", "pem": pem, "password": "pw-for-keys"}, headers=hd)
+            self.assertEqual(r.status, 400)
+            r = await c.post("/api/keys", json={"env": "real", "key_id": kid, "pem": pem.replace("\n", "\r\n"),
+                                                "password": "pw-for-keys"}, headers=hd)
+            body = await r.json()
+            self.assertEqual(r.status, 200, body)
+            self.assertEqual(body["type"], "RSA 2048-bit")
+            self.assertTrue(body["restart_needed"])                 # running on REST, wants the WebSocket
+            self.assertTrue(self.app.client.has_keys)               # picked up without a restart
+            self.assertIsNotNone(self.app.engine.live_exec)
+            stored = KR.KEYS_FILE.parent / "secrets" / "real_private_key.pem"
+            self.assertTrue(stored.exists())
+            if os.name == "posix":
+                self.assertEqual(stored.stat().st_mode & 0o777, 0o600)
+                self.assertEqual(KR.KEYS_FILE.stat().st_mode & 0o777, 0o600)
+            text = await (await c.get("/api/keys", headers=hd)).text()
+            self.assertNotIn("PRIVATE KEY", text)                   # the key itself never goes back to the browser
+            self.assertNotIn(kid, text)                             # and the key ID is masked
+            d = json.loads(text)["keys"]["real"]
+            self.assertEqual((d["type"], d["stored_here"]), ("RSA 2048-bit", True))
+            orig = KR.Client.balance
+            KR.Client.balance = lambda self_: {"balance": 12345}
+            try:
+                t = await (await c.post("/api/keys/test", json={"env": "real"}, headers=hd)).json()
+            finally:
+                KR.Client.balance = orig
+            self.assertEqual((t["ok"], t["balance"]), (True, 123.45))
+            ext = Path(self.tmp.name) / "my_key.pem"
+            ext.write_text(pem)
+            r = await c.post("/api/keys", json={"env": "sandbox", "key_id": kid, "path": str(ext),
+                                                "password": "pw-for-keys"}, headers=hd)
+            self.assertEqual(r.status, 200)
+            r = await c.post("/api/keys/delete", json={"env": "sandbox", "password": "pw-for-keys"}, headers=hd)
+            self.assertEqual(r.status, 200)
+            self.assertTrue(ext.exists())                           # a file the user pointed to is never deleted
+            r = await c.post("/api/keys/delete", json={"env": "real", "password": "pw-for-keys"}, headers=hd)
+            self.assertEqual(r.status, 200)
+            self.assertFalse(stored.exists())
+            self.assertFalse(self.app.client.has_keys)
+            self.assertEqual((await c.post("/api/restart", json={}, headers=hd)).status, 400)   # not a service here
+
     def test_password_hash(self):
         import kml.config as CC
         h = CC.hash_password("s3cret-pass")

@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>API keys - Kalshi Maker Lab</title>
+<link rel="icon" href="data:,">
+<style>
+:root{--bg:#0e1116;--panel:#161b22;--line:#262d38;--text:#dfe5ec;--dim:#8a95a3;--good:#3fb97a;--bad:#e5604d;--warn:#d9a13b;--accent:#5aa2f0;--mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:14px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+header{display:flex;gap:14px;align-items:center;padding:12px 18px;border-bottom:1px solid var(--line)}
+h1{font-size:16px;margin:0;font-weight:650}
+h2{font-size:12px;margin:0 0 12px;color:var(--dim);font-weight:600;text-transform:uppercase;letter-spacing:.9px}
+main{padding:16px 18px 60px;display:grid;gap:16px;max-width:860px;margin:0 auto}
+section{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:16px 18px}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px}
+.card{border:1px solid var(--line);border-radius:8px;padding:12px 14px;display:grid;gap:6px;align-content:start}
+.card b{font-size:14px}
+.kv{display:grid;grid-template-columns:110px 1fr;gap:2px 10px;font-size:13px}
+.kv span:nth-child(odd){color:var(--dim)}
+.mono{font-family:var(--mono);font-size:12.5px;word-break:break-all}
+.dim{color:var(--dim)}.good{color:var(--good)}.bad{color:var(--bad)}.warn{color:var(--warn)}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.spacer{flex:1}
+button{background:#222a35;color:var(--text);border:1px solid var(--line);border-radius:6px;padding:6px 12px;font:inherit;cursor:pointer}
+button:hover{border-color:#3a4554}button.primary{background:#1d3a5c;border-color:#2b5687}button.danger{background:#4a1f1a;border-color:#7a2e25}
+button:disabled{opacity:.55;cursor:default}
+label{display:grid;gap:5px;font-size:12.5px;color:var(--dim)}
+input,select,textarea{background:#0e1116;color:var(--text);border:1px solid var(--line);border-radius:6px;padding:8px 10px;font:inherit;width:100%}
+textarea{font:12px/1.4 var(--mono);min-height:150px;resize:vertical}
+form{display:grid;gap:14px}
+.tabs{display:flex;gap:6px;flex-wrap:wrap}
+.tabs label{display:flex;gap:6px;align-items:center;border:1px solid var(--line);border-radius:6px;padding:6px 11px;cursor:pointer;color:var(--text);font-size:13px}
+.tabs input{width:auto;margin:0}
+.tabs label:has(input:checked){border-color:#2b5687;background:#16283d}
+.drop{border:1.5px dashed #3a4554;border-radius:8px;padding:22px;text-align:center;color:var(--dim);cursor:pointer}
+.drop.over{border-color:var(--accent);color:var(--text)}
+.msg{padding:9px 12px;border-radius:6px;border-left:3px solid var(--line);background:#11161d;margin:0}
+.msg.good{border-color:var(--good)}.msg.bad{border-color:var(--bad);color:var(--text)}.msg.warn{border-color:var(--warn);color:var(--text)}
+ol{margin:0;padding-left:20px;color:var(--dim)}ol li{margin:3px 0}
+</style>
+</head>
+<body>
+<header>
+  <h1>Kalshi Maker Lab</h1><span class="dim">API keys</span><span class="spacer"></span>
+  <button onclick="location.href='/'">Back to dashboard</button>
+</header>
+<main>
+  <div id="top"></div>
+  <section><h2>Keys on this machine</h2><div class="cards" id="cards"></div></section>
+  <section>
+    <h2>Add or replace a key</h2>
+    <form id="f" autocomplete="off">
+      <ol>
+        <li>On Kalshi, create an API key in your account settings.</li>
+        <li>Kalshi shows a <b>key ID</b> and gives you the <b>private key file</b> once. Keep that file somewhere safe.</li>
+        <li>Enter both below. The file is stored on this machine only, readable only by the program's user.</li>
+      </ol>
+      <div class="row" style="gap:14px;align-items:end">
+        <label style="flex:1 1 180px">Environment
+          <select name="env"><option value="real">Production (real money)</option><option value="sandbox">Demo (sandbox)</option></select></label>
+        <label style="flex:3 1 300px">Key ID<input name="key_id" class="mono" placeholder="e.g. a1b2c3d4-..." spellcheck="false"></label>
+      </div>
+      <div>
+        <div class="tabs" style="margin-bottom:10px">
+          <label><input type="radio" name="how" value="upload" checked> Upload the file</label>
+          <label><input type="radio" name="how" value="paste"> Paste its contents</label>
+          <label><input type="radio" name="how" value="path"> File already on this machine</label>
+          <label><input type="radio" name="how" value="keep"> Keep the current file</label>
+        </div>
+        <div id="pUpload"><div class="drop" id="drop">Drop the private key file here, or click to choose it<br><span class="mono" id="fname"></span></div>
+          <input type="file" id="file" accept=".pem,.key,.txt,application/x-pem-file" hidden></div>
+        <div id="pPaste" hidden><textarea name="pem" placeholder="-----BEGIN RSA PRIVATE KEY-----&#10;...&#10;-----END RSA PRIVATE KEY-----" spellcheck="false"></textarea></div>
+        <div id="pPath" hidden><input name="path" class="mono" placeholder="/home/whit/kalshi_private_key.pem" spellcheck="false"></div>
+        <div id="pKeep" hidden><p class="dim" style="margin:0">Changes only the key ID; the stored private key file stays as it is.</p></div>
+      </div>
+      <label style="max-width:320px">Your web page password (to confirm)<input name="password" type="password" autocomplete="current-password"></label>
+      <p id="formMsg" hidden></p>
+      <div class="row"><span class="spacer"></span><button class="primary" id="save">Save key</button></div>
+    </form>
+  </section>
+</main>
+<script>
+const $ = id => document.getElementById(id), f = $('f');
+function h(tag, attrs, ...kids){ const e = document.createElement(tag);
+  for (const k in (attrs||{})) { if (k === 'class') e.className = attrs[k]; else if (k.startsWith('on')) e[k] = attrs[k]; else if (attrs[k] != null) e.setAttribute(k, attrs[k]); }
+  for (const c of kids.flat()) if (c != null && c !== false) e.append(c.nodeType ? c : document.createTextNode(c)); return e; }
+async function api(path, body){
+  const r = await fetch(path, body ? {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)} : {});
+  if (r.status === 401){ location.href = '/login'; throw new Error('sign in'); }
+  const d = await r.json().catch(() => ({})); if (!r.ok) throw new Error(d.error || r.statusText); return d; }
+function msg(el, cls, ...parts){ el.className = 'msg ' + cls; el.replaceChildren(...parts); el.hidden = false; }
+let STATE = null, pemText = '';
+
+function restartBox(){
+  if (!STATE.can_restart) return h('p',{class:'msg warn'}, 'Restart the program to switch to the faster WebSocket feed with this key.');
+  const b = h('button',{class:'primary', onclick: async () => { b.disabled = true; b.textContent = 'Restarting...';
+    try { await api('/api/restart', {}); } catch(e) { b.textContent = e.message; return; }
+    setTimeout(function wait(){ fetch('/api/keys').then(r => r.ok ? location.reload() : setTimeout(wait, 1500)).catch(() => setTimeout(wait, 1500)); }, 3000); }}, 'Restart now');
+  return h('div',{class:'msg warn row'}, 'Restart the program to switch to the faster WebSocket feed with this key.', h('span',{class:'spacer'}), b); }
+
+async function load(){
+  STATE = await api('/api/keys');
+  const p = STATE.program, top = [];
+  if (p.has_keys && p.source === 'rest' && p.wanted_source === 'ws') top.push(restartBox());
+  else if (!p.has_keys) top.push(h('p',{class:'msg warn'}, 'No key loaded for ' + (STATE.env_in_use === 'real' ? 'production' : 'the demo') + '. The program is running on public REST polling until you add one.'));
+  else top.push(h('p',{class:'msg good'}, `Key loaded. Market data: ${p.source === 'ws' ? 'WebSocket' : 'REST polling'}.`));
+  $('top').replaceChildren(...top);
+  $('cards').replaceChildren(...Object.entries(STATE.keys).map(([env, k]) => {
+    const inUse = env === STATE.env_in_use, out = h('p',{hidden:''});
+    const head = h('div',{class:'row'}, h('b',null,k.label), inUse ? h('span',{class:'dim'},'(used by the program)') : null);
+    if (!k.present) return h('div',{class:'card'}, head, h('span',{class:'dim'}, 'No key.'), k.note ? h('span',{class:'dim'}, k.note) : null);
+    const test = h('button',{onclick: async () => { test.disabled = true; msg(out, '', 'Asking Kalshi...');
+      try { const r = await api('/api/keys/test', {env});
+        r.ok ? msg(out, 'good', `Kalshi accepted the key. Balance $${r.balance == null ? '?' : r.balance.toFixed(2)}; answered in ${r.ms} ms.`) : msg(out, 'bad', r.error);
+      } catch(e) { msg(out, 'bad', e.message); } test.disabled = false; }}, 'Test with Kalshi');
+    const del = h('button',{class:'danger', onclick: async () => {
+      const pw = prompt(`Remove the ${k.label} key? ${k.stored_here ? 'The stored key file is deleted from this machine.' : 'Your own file is left where it is.'}\n\nEnter your web page password to confirm:`);
+      if (!pw) return;
+      try { const r = await api('/api/keys/delete', {env, password: pw}); await load(); if (r.restart_needed) $('top').append(h('p',{class:'msg warn'}, 'The old key is still in use until the program restarts.')); }
+      catch(e) { msg(out, 'bad', e.message); } }}, 'Remove');
+    return h('div',{class:'card'}, head,
+      h('div',{class:'kv'}, h('span',null,'Key ID'), h('span',{class:'mono'},k.key_id), h('span',null,'Key'), h('span',{class: k.error ? 'bad' : ''}, k.error || `${k.type}, fingerprint ${k.fingerprint}`),
+        h('span',null,'File'), h('span',{class:'mono'}, k.key_file + (k.stored_here ? '' : '  (your file)'))),
+      h('div',{class:'row', style:'margin-top:4px'}, test, del), out);
+  }));
+}
+
+function how(){ const v = f.how.value; $('pUpload').hidden = v !== 'upload'; $('pPaste').hidden = v !== 'paste'; $('pPath').hidden = v !== 'path'; $('pKeep').hidden = v !== 'keep'; }
+f.how.forEach(r => r.onchange = how);
+async function takeFile(file){
+  if (!file) return; if (file.size > 20000) { msg($('formMsg'), 'bad', 'That file is too large to be a private key.'); return; }
+  pemText = await file.text(); $('fname').textContent = file.name;
+  if (!pemText.includes('PRIVATE KEY')) msg($('formMsg'), 'warn', "That file doesn't look like a private key. Kalshi's key file starts with -----BEGIN ... PRIVATE KEY-----.");
+  else $('formMsg').hidden = true; }
+$('drop').onclick = () => $('file').click();
+$('file').onchange = e => takeFile(e.target.files[0]);
+['dragenter','dragover'].forEach(t => $('drop').addEventListener(t, e => { e.preventDefault(); $('drop').classList.add('over'); }));
+['dragleave','drop'].forEach(t => $('drop').addEventListener(t, e => { e.preventDefault(); $('drop').classList.remove('over'); }));
+$('drop').addEventListener('drop', e => takeFile(e.dataTransfer.files[0]));
+
+f.onsubmit = async e => {
+  e.preventDefault(); const m = $('formMsg'), v = f.how.value;
+  const body = {env: f.env.value, key_id: f.key_id.value.trim(), password: f.password.value};
+  if (v === 'upload') { if (!pemText) return msg(m, 'bad', 'Choose the private key file first.'); body.pem = pemText; }
+  if (v === 'paste') body.pem = f.pem.value;
+  if (v === 'path') body.path = f.path.value;
+  $('save').disabled = true; msg(m, '', 'Checking the key...');
+  try {
+    const r = await api('/api/keys', body);
+    msg(m, 'good', `Saved: ${r.type}, fingerprint ${r.fingerprint}. Use "Test with Kalshi" to check Kalshi accepts it.`);
+    pemText = ''; $('fname').textContent = ''; $('file').value = ''; f.pem.value = ''; f.password.value = '';
+    await load(); if (r.restart_needed) $('top').prepend(restartBox());
+  } catch(err) { msg(m, 'bad', err.message); f.password.value = ''; }
+  $('save').disabled = false; };
+how(); load().catch(e => { if (e.message !== 'sign in') $('top').replaceChildren(h('p',{class:'msg bad'}, e.message)); });
+</script>
+</body>
+</html>

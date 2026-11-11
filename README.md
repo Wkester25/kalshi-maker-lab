@@ -13,7 +13,7 @@ is to score a small set of fixed rules on fresh data. This program does that sco
 | Part | Status |
 | --- | --- |
 | Trading engine and paper fill model | Replayed over 3,031 recorded windows; matches the review's separately written simulator on all five rules |
-| Order book, rules, stop, settlement, stats, login | 20 unit tests (`python -m unittest discover -s tests`) |
+| Order book, rules, stop, settlement, stats, login, key page | 21 unit tests (`python -m unittest discover -s tests`) |
 | WebSocket client, window roll-over, recorder, web page, login | Run end to end against a fake exchange (`python tools/smoke_test.py`); login flow checked in a real browser |
 | WebSocket message formats | Written from Kalshi's published docs. **Not yet run against the real exchange.** The program checks its WebSocket book against the REST book every minute and warns on the page if they disagree |
 | REST client (signing, orders, cancels) | Carried over unchanged from the Late Maker bot, which traded real money with it |
@@ -32,10 +32,16 @@ git clone <your repo url> kalshi-maker-lab && cd kalshi-maker-lab
 ./deploy/install.sh          # sets up .venv, runs the self-tests, prints the service commands
 ```
 
-**Keys.** Copy `keys.example.json` to `keys.json` and fill in your Kalshi API key id and the path to the private
-key file (same shape as the old `lm_keys.json`, so that file can simply be copied and renamed). Copy the `.pem`
-to the server with `scp`; never commit it. Without keys the program still runs, on public REST polling: slower,
-and without the settlement-index feed.
+**API keys.** Easiest: sign in to the web page and open **API keys**. Enter the key ID Kalshi gave you, then
+upload the private key file, paste its contents, or give the path of a file already on the server. You confirm
+with your web password. The page checks the key can sign, stores it in `secrets/` (readable only by the
+program's user), and "Test with Kalshi" checks Kalshi accepts it and shows your balance and the round-trip
+time. A new key takes effect at once; if the program was running without keys, it offers a restart to switch
+to the WebSocket feed (the restart button works when it runs as a service).
+
+The key file itself never goes back to the browser, and `secrets/` and `keys.json` are never committed. You
+can still set keys by hand: copy `keys.example.json` to `keys.json` (same shape as the old `lm_keys.json`).
+Without keys the program runs on public REST polling: slower, and without the settlement-index feed.
 
 **Web page and login.** `./deploy/install.sh` asks for a username and password and whether the page should be
 reachable on your local network. To change either later:
@@ -117,7 +123,8 @@ kml/ws.py                  WebSocket client
 kml/kalshi_rest.py         REST client (carried over from the Late Maker bot)
 kml/live.py                real orders (locked off by default)
 kml/app.py                 wiring: feeds, window roll-over, results, recorder
-kml/web.py, kml/static/    web page and its API
+kml/web.py, kml/static/    web page, login, API keys page
+kml/keys.py                API key storage and checks       -> keys.json, secrets/
 kml/store.py               SQLite store and statistics       -> data/lab.db
 kml/recorder.py            market data to disk               -> data/rec/
 kml/scorecard.py           daily report                      -> reports/

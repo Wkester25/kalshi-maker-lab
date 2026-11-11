@@ -9,7 +9,7 @@ from pathlib import Path
 from . import config as C
 from .book import mills
 from .engine import ET, Engine, Market
-from .kalshi_rest import Client, KalshiError, iso_ts
+from .kalshi_rest import Client, KalshiError, iso_ts, num
 from .live import LiveExec
 from .recorder import Recorder
 from .store import Store
@@ -280,6 +280,42 @@ class App:
                     await asyncio.to_thread(scorecard.write, self.store, self.cfg, ROOT / "reports")
                 except Exception as err:                              # noqa: BLE001
                     self.event("error", f"scorecard: {err}")
+
+    def reload_keys(self) -> bool:
+        """Pick up changed API keys without a restart where possible. Returns True if a restart is still needed."""
+        self.client.__init__(self.cfg.get("env", "real"))
+        if self.client.has_keys:
+            if self.live is None:
+                self.live = LiveExec(self.client)
+                self.live.engine = self.engine
+                self.engine.live_exec = self.live
+            if self.ws:
+                self.ws.signer, self.ws.key_id = self.client.signer, self.client.key_id
+                asyncio.ensure_future(self.ws.reconnect("API key changed"))
+                return False
+            return self.cfg.get("source", "ws") == "ws"          # running on REST because there were no keys
+        if self.cfg["live"].get("enabled"):
+            self.engine.halt_live("API key removed")
+        return self.ws is not None
+
+    async def test_keys(self, env: str) -> dict:
+        c = Client(env)
+        if not c.has_keys:
+            return {"ok": False, "error": c.key_error or "no key"}
+        t0 = time.perf_counter()
+        try:
+            b = await asyncio.to_thread(c.balance)
+        except KalshiError as e:
+            why = str(e)
+            if e.status in (401, 403):
+                why = ("Kalshi refused the key. Check the key ID matches this private key, and that the key "
+                       "hasn't been deleted on Kalshi")
+            return {"ok": False, "error": why}
+        except Exception as e:                                        # noqa: BLE001
+            return {"ok": False, "error": f"{type(e).__name__}: {e}"}
+        ms = round((time.perf_counter() - t0) * 1000)
+        cents = num(b, "balance", None)
+        return {"ok": True, "balance": None if cents is None else round(cents / 100, 2), "ms": ms}
 
     def feed_status(self) -> dict:
         s = {"source": self.source, "clock_offset_ms": round(self.offset * 1000), "audit": self.audit,

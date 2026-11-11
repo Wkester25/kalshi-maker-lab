@@ -11,3 +11,6 @@ __pycache__/
 .venv/
 venv/
 *.tmp
+
+# API keys stored by the web page
+secrets/

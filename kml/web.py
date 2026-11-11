@@ -8,15 +8,18 @@ port on your router. This page can change trading settings.
 """
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import hmac
 import json
+import os
 import time
 from pathlib import Path
 
 from aiohttp import web
 
 from . import config as C
+from . import keys as K
 from . import scorecard
 from .store import ladder
 
@@ -216,9 +219,85 @@ def make_app(app_obj) -> web.Application:
         p = scorecard.write(store, cfg, ROOT / "reports")
         return web.json_response({"ok": True, "path": str(p), "text": p.read_text(encoding="utf-8")})
 
+    can_restart = bool(os.environ.get("INVOCATION_ID") or os.environ.get("KML_CAN_RESTART"))
+
+    def password_ok(req: web.Request, body: dict) -> bool:
+        ip = req.remote or "?"
+        now = time.time()
+        recent = [t for t in fails.get(ip, []) if now - t < 300]
+        if len(recent) >= 5:
+            return False
+        if C.check_password(str(body.get("password", "")), cfg["web"].get("password_hash", "")):
+            return True
+        fails[ip] = recent + [now]
+        return False
+
+    async def keys_page(req):
+        return web.FileResponse(STATIC / "keys.html", headers={"Cache-Control": "no-store"})
+
+    async def get_keys(req):
+        return web.json_response({"env_in_use": cfg.get("env", "real"), "keys": K.describe(),
+                                  "program": {"has_keys": app_obj.client.has_keys, "key_error": app_obj.client.key_error,
+                                              "source": app_obj.source, "wanted_source": cfg.get("source", "ws")},
+                                  "can_restart": can_restart})
+
+    async def post_keys(req):
+        try:
+            body = await req.json()
+        except ValueError:
+            return web.json_response({"error": "bad request"}, status=400)
+        if not password_ok(req, body):
+            store.event("warn", f"API key change refused: wrong password from {req.remote}")
+            return web.json_response({"error": "wrong password (or too many attempts: wait five minutes)"}, status=403)
+        env = body.get("env", "real")
+        try:
+            info = await asyncio.to_thread(K.save, env, body.get("key_id", ""), body.get("pem"), body.get("path"))
+        except ValueError as e:
+            return web.json_response({"error": str(e)}, status=400)
+        restart = app_obj.reload_keys() if env == cfg.get("env", "real") else False
+        store.event("info", f"{env} API key saved from the web page ({info['type']}, fingerprint {info['fingerprint']})")
+        return web.json_response({"ok": True, **info, "restart_needed": restart})
+
+    async def post_keys_delete(req):
+        body = await req.json()
+        if not password_ok(req, body):
+            return web.json_response({"error": "wrong password (or too many attempts: wait five minutes)"}, status=403)
+        env = body.get("env", "")
+        if env not in K.ENVS:
+            return web.json_response({"error": "unknown environment"}, status=400)
+        await asyncio.to_thread(K.remove, env)
+        restart = app_obj.reload_keys() if env == cfg.get("env", "real") else False
+        store.event("warn", f"{env} API key removed from the web page")
+        return web.json_response({"ok": True, "restart_needed": restart})
+
+    async def post_keys_test(req):
+        body = await req.json()
+        env = body.get("env", "real")
+        if env not in K.ENVS:
+            return web.json_response({"error": "unknown environment"}, status=400)
+        return web.json_response(await app_obj.test_keys(env))
+
+    async def post_restart(req):
+        if not can_restart:
+            return web.json_response({"error": "this copy isn't running as a service, so it can't restart itself: "
+                                               "stop it and start it again"}, status=400)
+        store.event("info", "restart requested from the web page")
+
+        def bye():
+            try:
+                app_obj.rec.flush()
+                app_obj.rec.close()
+            finally:
+                os._exit(0)                      # the service manager starts it again
+        asyncio.get_running_loop().call_later(0.8, bye)
+        return web.json_response({"ok": True})
+
     app = web.Application(middlewares=[auth])
     app.add_routes([web.get("/", index), web.get("/login", login_page), web.post("/api/login", post_login),
-                    web.post("/api/logout", post_logout), web.get("/api/status", status), web.get("/api/config", get_config),
+                    web.post("/api/logout", post_logout), web.get("/keys", keys_page),
+                    web.get("/api/keys", get_keys), web.post("/api/keys", post_keys),
+                    web.post("/api/keys/delete", post_keys_delete), web.post("/api/keys/test", post_keys_test),
+                    web.post("/api/restart", post_restart), web.get("/api/status", status), web.get("/api/config", get_config),
                     web.post("/api/rule", post_rule), web.post("/api/settings", post_settings),
                     web.post("/api/live", post_live), web.post("/api/halt", post_halt), web.get("/api/trades", trades),
                     web.get("/api/events", events), web.post("/api/scorecard", post_scorecard)])

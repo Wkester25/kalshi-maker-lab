@@ -49,6 +49,7 @@ pre{white-space:pre-wrap;font:12.5px/1.5 var(--mono);margin:0}
   <div class="stat">Uptime<b id="up">-</b></div>
   <span class="spacer"></span>
   <button id="btnCard">Scorecard</button>
+  <button onclick="location.href='/keys'">API keys</button>
   <button id="btnSettings">Settings</button>
   <button id="btnLive" class="primary" hidden>Turn live trading on</button>
   <button id="btnHalt" class="danger" hidden>Stop live trading</button>
@@ -101,7 +102,7 @@ function render(s){
   $('up').textContent = dur(s.uptime);
   const b = [];
   if (lv.halt) b.push(h('div',{class:'banner red'}, 'Live trading halted: ' + lv.halt));
-  if (!f.keys) b.push(h('div',{class:'banner'}, 'No API keys loaded (' + (f.key_error||'') + '). Running on public REST polling: slower, and no settlement-index feed.'));
+  if (!f.keys) b.push(h('div',{class:'banner'}, 'No API key loaded. Running on public REST polling: slower, and no settlement-index feed. ', h('a',{href:'/keys', style:'color:var(--accent)'}, 'Add your Kalshi API key')));
   if (f.audit.mismatch >= 3) b.push(h('div',{class:'banner red'}, `WebSocket book disagrees with the REST book in ${f.audit.mismatch} of ${f.audit.checked} checks. Last: ${f.audit.last}`));
   if (f.ws && f.ws.errors.length) b.push(h('div',{class:'banner'}, 'Recent WebSocket problems: ' + f.ws.errors.slice(-2).join(' | ')));
   if (Math.abs(f.clock_offset_ms) > 500 && f.source === 'ws') b.push(h('div',{class:'banner'}, `This machine's clock is ${Math.abs(f.clock_offset_ms)} ms ${f.clock_offset_ms > 0 ? 'behind' : 'ahead of'} the exchange. Timing is corrected for, but sync the clock.`));
