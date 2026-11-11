@@ -1,10 +1,14 @@
-"""The web page: status, scoreboard, settings. One token protects everything.
+"""The web page: status, scoreboard, settings, behind a login.
 
-Bound to 127.0.0.1 by default. On a server, reach it through an SSH tunnel (see README) rather than opening
-the port; this page can change trading settings.
+Sign in with the username and password set by `python run.py --setup`. A signed cookie keeps you signed in
+for 30 days. Scripts can use the API with the header  X-Token: <web.token from config.json>  instead.
+
+The page is plain HTTP, which is fine on a home network and not on the open internet: do not forward this
+port on your router. This page can change trading settings.
 """
 from __future__ import annotations
 
+import hashlib
 import hmac
 import json
 import time
@@ -31,22 +35,69 @@ def make_app(app_obj) -> web.Application:
     token = cfg["web"]["token"]
     cache = {"t": 0.0, "v": None}
 
+    SESSION_DAYS = 30
+    fails: dict[str, list[float]] = {}             # address -> times of recent wrong passwords
+
+    def sign(user: str, exp: int) -> str:
+        mac = hmac.new(token.encode(), f"{user}|{exp}".encode(), hashlib.sha256).hexdigest()
+        return f"{user}|{exp}|{mac}"
+
+    def session_ok(value: str) -> bool:
+        try:
+            user, exp, mac = value.rsplit("|", 2)
+            return (hmac.compare_digest(sign(user, int(exp)), value) and int(exp) > time.time()
+                    and user == cfg["web"].get("username", "admin"))
+        except (ValueError, AttributeError):
+            return False
+
     def authed(req: web.Request) -> bool:
-        got = req.headers.get("X-Token") or req.cookies.get("kml_token") or ""
-        return hmac.compare_digest(got, token)
+        if hmac.compare_digest(req.headers.get("X-Token") or "", token):
+            return True
+        return session_ok(req.cookies.get("kml_session") or "")
 
     @web.middleware
     async def auth(req: web.Request, handler):
-        if req.path.startswith("/api/") and not authed(req):
-            return web.json_response({"error": "token required"}, status=401)
+        if req.path in ("/login", "/api/login"):
+            return await handler(req)
+        if not authed(req):
+            if req.path.startswith("/api/"):
+                return web.json_response({"error": "sign in required"}, status=401)
+            raise web.HTTPFound("/login")
         return await handler(req)
 
     async def index(req: web.Request):
-        resp = web.FileResponse(STATIC / "index.html")
-        t = req.query.get("token")
-        if t and hmac.compare_digest(t, token):
-            resp = web.HTTPFound("/")
-            resp.set_cookie("kml_token", t, max_age=90 * 86400, httponly=True, samesite="Strict")
+        return web.FileResponse(STATIC / "index.html", headers={"Cache-Control": "no-store"})
+
+    async def login_page(req: web.Request):
+        return web.FileResponse(STATIC / "login.html", headers={"Cache-Control": "no-store"})
+
+    async def post_login(req: web.Request):
+        ip = req.remote or "?"
+        now = time.time()
+        recent = [t for t in fails.get(ip, []) if now - t < 300]
+        if len(recent) >= 5:
+            return web.json_response({"error": "too many wrong attempts; wait five minutes"}, status=429)
+        try:
+            body = await req.json()
+        except ValueError:
+            body = {}
+        user, pw = str(body.get("username", "")), str(body.get("password", ""))
+        good_user = hmac.compare_digest(user.encode(), str(cfg["web"].get("username", "admin")).encode())
+        good_pw = C.check_password(pw, cfg["web"].get("password_hash", ""))
+        if not (good_user and good_pw):
+            fails[ip] = recent + [now]
+            store.event("warn", f"wrong web login from {ip}")
+            return web.json_response({"error": "wrong username or password"}, status=401)
+        fails.pop(ip, None)
+        resp = web.json_response({"ok": True})
+        resp.set_cookie("kml_session", sign(user, int(now) + SESSION_DAYS * 86400), max_age=SESSION_DAYS * 86400,
+                        httponly=True, samesite="Strict")
+        store.event("info", f"web login from {ip}")
+        return resp
+
+    async def post_logout(req: web.Request):
+        resp = web.json_response({"ok": True})
+        resp.del_cookie("kml_session")
         return resp
 
     def scoreboard() -> list:
@@ -166,7 +217,8 @@ def make_app(app_obj) -> web.Application:
         return web.json_response({"ok": True, "path": str(p), "text": p.read_text(encoding="utf-8")})
 
     app = web.Application(middlewares=[auth])
-    app.add_routes([web.get("/", index), web.get("/api/status", status), web.get("/api/config", get_config),
+    app.add_routes([web.get("/", index), web.get("/login", login_page), web.post("/api/login", post_login),
+                    web.post("/api/logout", post_logout), web.get("/api/status", status), web.get("/api/config", get_config),
                     web.post("/api/rule", post_rule), web.post("/api/settings", post_settings),
                     web.post("/api/live", post_live), web.post("/api/halt", post_halt), web.get("/api/trades", trades),
                     web.get("/api/events", events), web.post("/api/scorecard", post_scorecard)])

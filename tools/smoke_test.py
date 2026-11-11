@@ -177,12 +177,13 @@ async def main(serve: bool) -> int:
     c.open_market, c.market, c.book = fake.open_market, fake.market_by_ticker, fake.book
     for m in app.engine.markets.values():
         m.next_result_check = 0
+    C.set_login(username="admin", password="smoke-test-pw")
+    cfg["web"]["password_hash"] = C.load()["web"]["password_hash"]
     r2 = web.AppRunner(make_app(app), access_log=None)
     await r2.setup()
     await web.TCPSite(r2, "127.0.0.1", 18766).start()
     run = asyncio.ensure_future(app.run())
-    url = f"http://127.0.0.1:18766/?token={cfg['web']['token']}"
-    print("fake exchange up; program running at", url)
+    print("fake exchange up; program running at http://127.0.0.1:18766  (sign in: admin / smoke-test-pw)")
     if serve:
         await run
         return 0

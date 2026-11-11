@@ -24,6 +24,11 @@ fi
 .venv/bin/pip install -q -r requirements.txt
 .venv/bin/python -m unittest discover -s tests >/dev/null 2>&1 && echo "self-tests passed" || echo "WARNING: self-tests failed (run: .venv/bin/python -m unittest discover -s tests -v)"
 
+# web login and local-network access (asks only when run in a terminal and no password is set yet)
+if [ -t 0 ] && ! grep -q '"password_hash": "pbkdf2' config.json 2>/dev/null; then
+  .venv/bin/python run.py --setup
+fi
+
 if [ ! -f keys.json ]; then
   echo "No keys.json yet. Copy keys.example.json to keys.json and fill it in; until then the program uses public REST polling."
 fi
@@ -36,5 +41,6 @@ echo "  sudo cp $UNIT /etc/systemd/system/kalshi-maker-lab.service"
 echo "  sudo systemctl daemon-reload && sudo systemctl enable --now kalshi-maker-lab"
 echo "  journalctl -u kalshi-maker-lab -f        # watch it; the web address and token are printed at start"
 echo
-echo "To open the web page from your own computer (keeps the port closed to the internet):"
-echo "  ssh -L 8787:127.0.0.1:8787 $USER_NAME@<server-address>     then browse to the address printed in the log"
+echo "Then open the web page from any device on your network and sign in:"
+echo "  http://$(hostname -I 2>/dev/null | awk '{print $1}'):8787"
+echo "To change the login later:  .venv/bin/python run.py --setup   then   sudo systemctl restart kalshi-maker-lab"

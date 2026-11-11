@@ -7,6 +7,8 @@ and a rule with a new id is added.
 from __future__ import annotations
 
 import copy
+import hashlib
+import hmac
 import json
 import os
 import secrets
@@ -81,7 +83,8 @@ DEFAULTS = {
              "extra": [{"weekday": 2, "time": "10:30", "group": "commodity", "why": "EIA petroleum"},
                        {"weekday": 3, "time": "10:30", "group": "commodity", "why": "EIA gas storage"}]},
     "eval_ms": 200,
-    "web": {"host": "127.0.0.1", "port": 8787, "token": ""},
+    # host 127.0.0.1 = this machine only; 0.0.0.0 = the local network too (set by: python run.py --setup)
+    "web": {"host": "127.0.0.1", "port": 8787, "token": "", "username": "admin", "password_hash": ""},
     "rules": RULES,
 }
 
@@ -145,6 +148,35 @@ def load() -> dict:
         cfg["web"]["token"] = secrets.token_urlsafe(18)
         save_overrides({**over, "web": {**over.get("web", {}), "token": cfg["web"]["token"]}})
     return cfg
+
+
+def hash_password(password: str, salt: bytes | None = None, rounds: int = 200_000) -> str:
+    salt = salt or secrets.token_bytes(16)
+    h = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, rounds)
+    return f"pbkdf2${rounds}${salt.hex()}${h.hex()}"
+
+
+def check_password(password: str, stored: str) -> bool:
+    try:
+        kind, rounds, salt, h = stored.split("$")
+        if kind != "pbkdf2":
+            return False
+        return hmac.compare_digest(hash_password(password, bytes.fromhex(salt), int(rounds)), stored)
+    except (ValueError, AttributeError):
+        return False
+
+
+def set_login(username: str | None = None, password: str | None = None, host: str | None = None) -> None:
+    """Store the web login (password as a salted hash) and, optionally, the address to listen on."""
+    over = read_overrides()
+    w = over.setdefault("web", {})
+    if username:
+        w["username"] = username
+    if password:
+        w["password_hash"] = hash_password(password)
+    if host:
+        w["host"] = host
+    save_overrides(over)
 
 
 def save_overrides(over: dict) -> None:

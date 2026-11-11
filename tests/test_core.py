@@ -292,7 +292,44 @@ class TestFeedAndWeb(unittest.IsolatedAsyncioTestCase):
             cfg = await (await c.get("/api/config", headers=hd)).json()
             self.assertNotIn("token", cfg["web"])
             self.assertEqual((await c.post("/api/scorecard", json={}, headers=hd)).status, 200)
-            self.assertEqual((await c.get("/")).status, 200)
+            self.assertEqual((await c.get("/", headers=hd)).status, 200)
+
+    async def test_login_page(self):
+        from aiohttp.test_utils import TestClient, TestServer
+        import kml.config as CC
+        from kml.web import make_app
+        self.cfg["web"]["password_hash"] = CC.hash_password("correct horse")
+        async with TestClient(TestServer(make_app(self.app))) as c:
+            r = await c.get("/", allow_redirects=False)
+            self.assertEqual((r.status, r.headers["Location"]), (302, "/login"))      # not signed in: sent to login
+            self.assertEqual((await c.get("/login")).status, 200)
+            self.assertEqual((await c.get("/api/status")).status, 401)
+            r = await c.post("/api/login", json={"username": "admin", "password": "wrong"})
+            self.assertEqual(r.status, 401)
+            r = await c.post("/api/login", json={"username": "nobody", "password": "correct horse"})
+            self.assertEqual(r.status, 401)
+            r = await c.post("/api/login", json={"username": "admin", "password": "correct horse"})
+            self.assertEqual(r.status, 200)
+            self.assertIn("HttpOnly", r.headers["Set-Cookie"])
+            self.assertEqual((await c.get("/api/status")).status, 200)                # the cookie now signs us in
+            self.assertEqual((await c.get("/", allow_redirects=False)).status, 200)
+            await c.post("/api/logout", json={})
+            self.assertEqual((await c.get("/api/status")).status, 401)
+            c.session.cookie_jar.update_cookies({"kml_session": "admin|9999999999|forged"})
+            self.assertEqual((await c.get("/api/status")).status, 401)                # a forged cookie is refused
+            c.session.cookie_jar.clear()
+            for _ in range(5):
+                await c.post("/api/login", json={"username": "admin", "password": "x"})
+            r = await c.post("/api/login", json={"username": "admin", "password": "correct horse"})
+            self.assertEqual(r.status, 429)                                           # locked out after 5 misses
+
+    def test_password_hash(self):
+        import kml.config as CC
+        h = CC.hash_password("s3cret-pass")
+        self.assertTrue(h.startswith("pbkdf2$") and "s3cret" not in h)
+        self.assertTrue(CC.check_password("s3cret-pass", h))
+        self.assertFalse(CC.check_password("s3cret-pasS", h))
+        self.assertFalse(CC.check_password("anything", ""))
 
 
 if __name__ == "__main__":

@@ -2,7 +2,7 @@
 
 One program for Kalshi's 15-minute markets (7 crypto, 8 commodity). It records market data at WebSocket
 speed, runs a set of frozen trading rules against the live market in **paper mode**, keeps score, and
-shows everything on a web page. It can place real orders, but that is switched off and locked by default.
+shows everything on a web page behind a login. It can place real orders, but that is switched off and locked by default.
 
 It was built after an independent review of the "Late Maker" bot (Nov 2026). The short version of that review:
 the old backtests were inflated by a clock that ran 1.2 s slow, no rule is proven yet, and the way to find out
@@ -13,8 +13,8 @@ is to score a small set of fixed rules on fresh data. This program does that sco
 | Part | Status |
 | --- | --- |
 | Trading engine and paper fill model | Replayed over 3,031 recorded windows; matches the review's separately written simulator on all five rules |
-| Order book, rules, stop, settlement, stats | 18 unit tests (`python -m unittest discover -s tests`) |
-| WebSocket client, window roll-over, recorder, web page | Run end to end against a fake exchange (`python tools/smoke_test.py`) |
+| Order book, rules, stop, settlement, stats, login | 20 unit tests (`python -m unittest discover -s tests`) |
+| WebSocket client, window roll-over, recorder, web page, login | Run end to end against a fake exchange (`python tools/smoke_test.py`); login flow checked in a real browser |
 | WebSocket message formats | Written from Kalshi's published docs. **Not yet run against the real exchange.** The program checks its WebSocket book against the REST book every minute and warns on the page if they disagree |
 | REST client (signing, orders, cancels) | Carried over unchanged from the Late Maker bot, which traded real money with it |
 | Live order logic in this program | Follows the Late Maker bot's sequences. **Has not traded on a live account.** First use: one rule, one contract |
@@ -37,15 +37,27 @@ key file (same shape as the old `lm_keys.json`, so that file can simply be copie
 to the server with `scp`; never commit it. Without keys the program still runs, on public REST polling: slower,
 and without the settlement-index feed.
 
-**Web page.** The address and access token are printed at start:
-`http://localhost:8787/?token=...`. The page listens on 127.0.0.1 only. From another computer, tunnel in rather
-than opening the port:
+**Web page and login.** `./deploy/install.sh` asks for a username and password and whether the page should be
+reachable on your local network. To change either later:
 
 ```bash
-ssh -L 8787:127.0.0.1:8787 you@your-server      # then open the printed address on your own machine
+.venv/bin/python run.py --setup            # username, password, local network yes/no
+.venv/bin/python run.py --set-password     # password only
+sudo systemctl restart kalshi-maker-lab
 ```
 
-This page can change trading settings, so treat the token like a password.
+With local-network access on, open `http://<server-address>:8787` from any device at home and sign in. The
+address is printed when the program starts. Details:
+
+- The password is stored only as a salted hash in `config.json`. Five wrong attempts lock that device out for
+  five minutes. A sign-in lasts 30 days.
+- If you never run `--setup`, the program makes a random password on first start and prints it once.
+- The page is plain HTTP. That is fine on a home network. **Do not forward port 8787 on your router**; from
+  outside the house use a VPN or `ssh -L 8787:127.0.0.1:8787 you@server` instead.
+- If the server runs a firewall: `sudo ufw allow from 192.168.0.0/16 to any port 8787 proto tcp`.
+- Scripts can call the API with the header `X-Token: <web.token from config.json>` instead of signing in.
+
+This page can change trading settings, so pick a real password.
 
 ## Trading is off until three switches are on
 

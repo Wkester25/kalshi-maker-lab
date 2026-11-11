@@ -52,6 +52,7 @@ pre{white-space:pre-wrap;font:12.5px/1.5 var(--mono);margin:0}
   <button id="btnSettings">Settings</button>
   <button id="btnLive" class="primary" hidden>Turn live trading on</button>
   <button id="btnHalt" class="danger" hidden>Stop live trading</button>
+  <button id="btnOut">Sign out</button>
 </header>
 <main>
   <div id="banners"></div>
@@ -73,7 +74,7 @@ function h(tag, attrs, ...kids){ const e = document.createElement(tag);
   for (const c of kids.flat()) if (c != null && c !== false) e.append(c.nodeType ? c : document.createTextNode(c)); return e; }
 async function api(path, body){
   const r = await fetch(path, body ? {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)} : {});
-  if (r.status === 401){ const t = prompt('Access token (printed when the program starts):'); if (t) location.href = '/?token=' + encodeURIComponent(t); throw new Error('token'); }
+  if (r.status === 401){ location.href = '/login'; throw new Error('token'); }
   const d = await r.json(); if (!r.ok) throw new Error(d.error || r.statusText); return d; }
 const c2 = x => x == null ? '-' : (x >= 0 ? '+' : '') + x.toFixed(2) + 'c';
 const dur = s => s > 86400 ? (s/86400).toFixed(1)+' d' : s > 3600 ? (s/3600).toFixed(1)+' h' : Math.round(s/60)+' min';
@@ -165,6 +166,7 @@ $('btnSettings').onclick = async () => { CFG = await api('/api/config'); const f
 $('btnCard').onclick = async () => { $('card').textContent = 'Building...'; $('dlgCard').showModal(); try { $('card').textContent = (await api('/api/scorecard', {})).text; } catch(e) { $('card').textContent = e.message; } };
 $('btnLive').onclick = async () => { if (!confirm('Turn LIVE trading on? Rules marked "Trade live" will place real orders from the next window.')) return; try { await api('/api/live', {enabled:true, clear_halt:true}); refresh(); } catch(e) { alert(e.message); } };
 $('btnHalt').onclick = async () => { if (!confirm('Stop live trading and cancel every open order?')) return; try { const r = await api('/api/halt', {}); alert(r.note); refresh(); } catch(e) { alert(e.message); } };
+$('btnOut').onclick = async () => { try { await api('/api/logout', {}); } catch(e) {} location.href = '/login'; };
 refresh(); slow(); setInterval(refresh, 2000); setInterval(slow, 10000);
 </script>
 </body>
