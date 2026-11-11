@@ -1,0 +1,13 @@
+# secrets and local state: never commit
+keys.json
+config.json
+*.pem
+*.key
+data/
+reports/
+# python
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.tmp

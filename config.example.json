@@ -1,0 +1,8 @@
+{
+ "source": "ws",
+ "web": {"host": "127.0.0.1", "port": 8787},
+ "record": {"enabled": true, "mode": "top"},
+ "rules": [
+  {"id": "crypto_early", "enabled": false}
+ ]
+}

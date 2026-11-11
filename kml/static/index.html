@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kalshi Maker Lab</title>
+<link rel="icon" href="data:,">
+<style>
+:root{--bg:#0e1116;--panel:#161b22;--line:#262d38;--text:#dfe5ec;--dim:#8a95a3;--good:#3fb97a;--bad:#e5604d;--warn:#d9a13b;--accent:#5aa2f0;--mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:14px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+header{display:flex;flex-wrap:wrap;gap:10px 18px;align-items:center;padding:12px 18px;border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--bg);z-index:5}
+h1{font-size:16px;margin:0;font-weight:650;letter-spacing:.2px}
+h2{font-size:12px;margin:0 0 10px;color:var(--dim);font-weight:600;text-transform:uppercase;letter-spacing:.9px}
+main{padding:16px 18px 60px;display:grid;gap:16px;max-width:1500px;margin:0 auto}
+section{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:14px 16px;overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums}
+th{text-align:left;color:var(--dim);font-weight:500;font-size:12px;padding:5px 10px 7px 0;border-bottom:1px solid var(--line);white-space:nowrap}
+td{padding:6px 10px 6px 0;border-bottom:1px solid #1d232c;vertical-align:top;white-space:nowrap}
+td.wrap{white-space:normal;min-width:180px}
+tr:last-child td{border-bottom:0}
+.num{text-align:right}.mono{font-family:var(--mono);font-size:12.5px}.dim{color:var(--dim)}.good{color:var(--good)}.bad{color:var(--bad)}.warn{color:var(--warn)}
+.pill{display:inline-block;padding:1px 8px;border-radius:999px;font-size:11.5px;border:1px solid var(--line);color:var(--dim)}
+.pill.paper{color:var(--accent);border-color:#2b4a6e}.pill.live{color:#fff;background:var(--bad);border-color:var(--bad)}.pill.ok{color:var(--good);border-color:#255a3f}.pill.off{color:var(--dim)}.pill.warn{color:var(--warn);border-color:#6b5320}
+.stat{display:flex;flex-direction:column;font-size:12px;color:var(--dim)}.stat b{color:var(--text);font-size:13.5px;font-weight:600}
+button{background:#222a35;color:var(--text);border:1px solid var(--line);border-radius:6px;padding:5px 11px;font:inherit;cursor:pointer}
+button:hover{border-color:#3a4554}button.danger{background:#4a1f1a;border-color:#7a2e25}button.primary{background:#1d3a5c;border-color:#2b5687}
+input,select{background:#0e1116;color:var(--text);border:1px solid var(--line);border-radius:5px;padding:4px 7px;font:inherit;width:100%}
+input[type=checkbox]{width:auto}
+label{display:flex;flex-direction:column;gap:3px;font-size:12px;color:var(--dim)}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px 14px}
+.banner{border-left:3px solid var(--warn);background:#221c10;padding:8px 12px;border-radius:4px;margin-bottom:8px}
+.banner.red{border-color:var(--bad);background:#241311}
+dialog{background:var(--panel);color:var(--text);border:1px solid var(--line);border-radius:10px;padding:18px;max-width:640px;width:92vw}
+dialog::backdrop{background:rgba(0,0,0,.55)}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.spacer{flex:1}
+pre{white-space:pre-wrap;font:12.5px/1.5 var(--mono);margin:0}
+.rs{display:inline-block;margin:0 10px 2px 0;font-size:12px}
+</style>
+</head>
+<body>
+<header>
+  <h1>Kalshi Maker Lab</h1>
+  <span id="mode" class="pill paper">PAPER</span>
+  <div class="stat">Feed<b id="feed">-</b></div>
+  <div class="stat">Clock vs exchange<b id="clock">-</b></div>
+  <div class="stat">Recorded rows<b id="rows">-</b></div>
+  <div class="stat">Uptime<b id="up">-</b></div>
+  <span class="spacer"></span>
+  <button id="btnCard">Scorecard</button>
+  <button id="btnSettings">Settings</button>
+  <button id="btnLive" class="primary" hidden>Turn live trading on</button>
+  <button id="btnHalt" class="danger" hidden>Stop live trading</button>
+</header>
+<main>
+  <div id="banners"></div>
+  <section><h2>Rules</h2><table id="rules"></table></section>
+  <section><h2>Markets</h2><table id="markets"></table></section>
+  <section><h2>Open positions</h2><table id="open"></table></section>
+  <section><h2>Recent trades</h2><table id="trades"></table></section>
+  <section><h2>Log</h2><table id="events"></table></section>
+</main>
+
+<dialog id="dlgRule"><form method="dialog" id="formRule"></form></dialog>
+<dialog id="dlgSettings"><form method="dialog" id="formSettings"></form></dialog>
+<dialog id="dlgCard"><pre id="card"></pre><div class="row" style="margin-top:12px"><span class="spacer"></span><button onclick="dlgCard.close()">Close</button></div></dialog>
+
+<script>
+const $ = id => document.getElementById(id);
+function h(tag, attrs, ...kids){ const e = document.createElement(tag);
+  for (const k in (attrs||{})) { if (k === 'class') e.className = attrs[k]; else if (k.startsWith('on')) e[k] = attrs[k]; else if (attrs[k] !== false && attrs[k] != null) e.setAttribute(k, attrs[k]); }
+  for (const c of kids.flat()) if (c != null && c !== false) e.append(c.nodeType ? c : document.createTextNode(c)); return e; }
+async function api(path, body){
+  const r = await fetch(path, body ? {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)} : {});
+  if (r.status === 401){ const t = prompt('Access token (printed when the program starts):'); if (t) location.href = '/?token=' + encodeURIComponent(t); throw new Error('token'); }
+  const d = await r.json(); if (!r.ok) throw new Error(d.error || r.statusText); return d; }
+const c2 = x => x == null ? '-' : (x >= 0 ? '+' : '') + x.toFixed(2) + 'c';
+const dur = s => s > 86400 ? (s/86400).toFixed(1)+' d' : s > 3600 ? (s/3600).toFixed(1)+' h' : Math.round(s/60)+' min';
+const tm = t => new Date(t*1000).toLocaleTimeString([], {hour12:false});
+let CFG = null, ST = null;
+
+function fill(tbl, head, rows){ tbl.replaceChildren(h('thead', null, h('tr', null, head.map(x => h('th', {class: x.startsWith('#') ? 'num' : ''}, x.replace('#',''))))), h('tbody', null, rows.length ? rows : h('tr', null, h('td', {class:'dim', colspan: head.length}, 'Nothing yet')))); }
+
+function statCell(s){ if (!s || !s.n) return [h('td',{class:'num dim'},'0'), h('td',{class:'num dim'},'-'), h('td',{class:'num dim'},'-'), h('td',{class:'num dim'},'-'), h('td',{class:'num dim'},'-')];
+  const cls = s.lo95_c > 0 ? 'good' : s.hi95_c < 0 ? 'bad' : '';
+  return [h('td',{class:'num'}, s.n), h('td',{class:'num '+cls}, c2(s.mean_c)), h('td',{class:'num dim'}, s.se_c ? `${s.lo95_c.toFixed(2)} to ${s.hi95_c.toFixed(2)}` : '-'),
+          h('td',{class:'num'}, (s.win_rate*100).toFixed(2)+'%'), h('td',{class:'num '+(s.bad?'bad':'dim')}, s.bad)]; }
+
+function render(s){
+  ST = s; const f = s.feed, lv = s.live;
+  const liveOn = lv.allowed_by_flag && lv.enabled && !lv.halt;
+  $('mode').textContent = liveOn ? 'LIVE ON' : lv.allowed_by_flag ? 'PAPER (live unlocked)' : 'PAPER';
+  $('mode').className = 'pill ' + (liveOn ? 'live' : 'paper');
+  $('btnLive').hidden = !(lv.allowed_by_flag && !liveOn); $('btnHalt').hidden = !lv.allowed_by_flag;
+  $('feed').textContent = f.source === 'ws' ? (f.ws && f.ws.connected ? `WebSocket, ${f.ws.msgs.toLocaleString()} msgs` : 'WebSocket DOWN') : 'REST polling';
+  $('feed').className = (f.source === 'ws' && !(f.ws && f.ws.connected)) ? 'bad' : '';
+  $('clock').textContent = f.source === 'ws' ? (f.clock_offset_ms >= 0 ? '+' : '') + f.clock_offset_ms + ' ms' : 'not measured';
+  $('rows').textContent = f.record_mode === 'off' ? 'recording off' : f.recorder_rows.toLocaleString();
+  $('up').textContent = dur(s.uptime);
+  const b = [];
+  if (lv.halt) b.push(h('div',{class:'banner red'}, 'Live trading halted: ' + lv.halt));
+  if (!f.keys) b.push(h('div',{class:'banner'}, 'No API keys loaded (' + (f.key_error||'') + '). Running on public REST polling: slower, and no settlement-index feed.'));
+  if (f.audit.mismatch >= 3) b.push(h('div',{class:'banner red'}, `WebSocket book disagrees with the REST book in ${f.audit.mismatch} of ${f.audit.checked} checks. Last: ${f.audit.last}`));
+  if (f.ws && f.ws.errors.length) b.push(h('div',{class:'banner'}, 'Recent WebSocket problems: ' + f.ws.errors.slice(-2).join(' | ')));
+  if (Math.abs(f.clock_offset_ms) > 500 && f.source === 'ws') b.push(h('div',{class:'banner'}, `This machine's clock is ${Math.abs(f.clock_offset_ms)} ms ${f.clock_offset_ms > 0 ? 'behind' : 'ahead of'} the exchange. Timing is corrected for, but sync the clock.`));
+  $('banners').replaceChildren(...b);
+
+  fill($('rules'), ['Rule','Mode','#Trades','#Mean','#95% range','#Won','#Bad','#Today','#Total $','Evidence supports',''], s.scoreboard.flatMap(r => {
+    const one = (mode, first) => { const st = r.stats[mode], td = r.today[mode], ld = r.ladder[mode];
+      const badge = !r.enabled ? h('span',{class:'pill off'},'off') : mode === 'live' ? h('span',{class:'pill live'},'real money') : (r.live_flag && liveOn ? h('span',{class:'pill warn'},'paper (history)') : h('span',{class:'pill paper'},'paper'));
+      return h('tr', null, h('td',{class:'wrap'}, first ? [h('b',null,r.name), h('div',{class:'dim'}, r.id + ' \u00b7 ' + r.kind)] : ''), h('td',null,badge), ...statCell(st),
+        h('td',{class:'num dim'}, td && td.n ? `${td.n} @ ${c2(td.mean_c)}` : '-'), h('td',{class:'num'}, st && st.n ? (st.total_c/100).toFixed(2) : '-'),
+        h('td',{class:'wrap dim'}, ld ? `${ld.contracts} contract${ld.contracts===1?'':'s'}: ${ld.why}` : '-'),
+        h('td',null, first ? h('button',{onclick:()=>editRule(r.id)},'Edit') : '')); };
+    const rows = [one('paper', true)]; if (r.stats.live && r.stats.live.n) rows.push(one('live', false)); return rows; }));
+
+  fill($('markets'), ['Market','#Into window','#Bid','#Ask','#Strike','#Index','#Settle avg','#Trades','Rules'], s.markets.map(m => {
+    const dist = (m.index && m.strike) ? ((m.index - m.strike)/m.strike*1e4).toFixed(1)+' bp' : '';
+    return h('tr', null, h('td',null, h('b',null,m.coin), ' ', h('span',{class:'dim mono'}, m.ticker), m.news ? h('span',{class:'pill warn'},' news skip') : null, m.crossed > 20 ? h('span',{class:'pill warn'},' crossed '+m.crossed) : null),
+      h('td',{class:'num mono'}, m.left > 0 ? `${Math.floor(m.secs/60)}:${String(m.secs%60).padStart(2,'0')}` : 'settling'),
+      h('td',{class:'num mono'}, m.bid ?? '-'), h('td',{class:'num mono'}, m.ask ?? '-'), h('td',{class:'num mono dim'}, m.strike ?? '-'),
+      h('td',{class:'num mono'}, m.index ? m.index + (dist ? ' ('+dist+')' : '') : '-'), h('td',{class:'num mono'}, m.settle_avg ?? '-'), h('td',{class:'num dim'}, m.trades),
+      h('td',{class:'wrap'}, m.rules.map(r => h('span',{class:'rs ' + (r.state.startsWith('holding') ? 'good' : r.state.startsWith('bid') ? '' : 'dim')}, r.rule + ': ' + r.state)))); }));
+
+  fill($('open'), ['Rule','Mode','Market','Side','#Entry','#Contracts','#Filled at'], s.open_trades.map(t => h('tr', null, h('td',null,t.rule), h('td',null,h('span',{class:'pill '+t.mode},t.mode)), h('td',{class:'mono'},t.ticker), h('td',null,t.side), h('td',{class:'num mono'},t.px), h('td',{class:'num'},t.n), h('td',{class:'num dim'}, tm(t.t_fill)))));
+}
+
+async function refresh(){ try { render(await api('/api/status')); } catch(e) { if (e.message !== 'token') $('feed').textContent = 'page cannot reach the program'; } }
+async function slow(){ try {
+  const tr = await api('/api/trades?limit=60');
+  fill($('trades'), ['Time','Rule','Mode','Market','Side','#Entry','#N','Outcome','#Result c'], tr.map(t => h('tr', null, h('td',{class:'dim'},tm(t.t_fill)), h('td',null,t.rule), h('td',null,h('span',{class:'pill '+t.mode},t.mode)), h('td',{class:'mono'},t.ticker), h('td',null,t.side), h('td',{class:'num mono'},t.px), h('td',{class:'num'},t.n), h('td',{class: t.exit==='won'?'good':t.exit?'bad':'dim'}, t.exit || 'open'), h('td',{class:'num mono '+(t.pnl_c>0?'good':t.pnl_c<0?'bad':'')}, t.pnl_c == null ? '-' : t.pnl_c.toFixed(1)))));
+  const ev = await api('/api/events?limit=80');
+  fill($('events'), ['Time','Level','Message'], ev.map(e => h('tr', null, h('td',{class:'dim'}, new Date(e.t*1000).toLocaleString([], {hour12:false})), h('td',{class: e.level==='error'||e.level==='halt' ? 'bad' : e.level==='warn' ? 'warn' : 'dim'}, e.level), h('td',{class:'wrap'}, e.msg))));
+ } catch(e) {} }
+
+function field(label, name, val, type){ return h('label', null, label, type === 'check' ? h('input',{type:'checkbox', name, checked: val ? '' : null}) : h('input',{name, value: val ?? '', type: type || 'text'})); }
+async function editRule(id){
+  CFG = await api('/api/config'); const r = CFG.rules.find(x => x.id === id); const f = $('formRule');
+  f.replaceChildren(h('h2', null, r.name), h('p',{class:'dim'}, r.note || ''),
+    h('div',{class:'grid'}, field('Enabled','enabled',r.enabled,'check'), field('Trade live (maker rules only)','live',r.live,'check'), field('Band low (c)','lo',r.lo,'number'), field('Band high (c)','hi',r.hi,'number'),
+      field('Windows, seconds: 600-720, 870-897','windows', r.windows.map(w => w.join('-')).join(', ')), field('Stop below (c, 0 = hold)','stop_c',r.stop_c,'number'), field('Contracts','contracts',r.contracts,'number'),
+      h('label', null, 'Pricing', h('select',{name:'pricing'}, ['improve','join'].map(o => h('option',{value:o, selected: r.pricing===o ? '' : null}, o)))),
+      field('Markets (comma list or all)','coins', r.coins === 'all' ? 'all' : r.coins.join(', '))),
+    h('p',{class:'warn', id:'ruleErr'}, ''),
+    h('p',{class:'dim'}, 'These rules were frozen so that new data can score them fairly. Changing a band or window restarts that test: change one thing at a time and note it.'),
+    h('div',{class:'row'}, h('span',{class:'spacer'}), h('button',{type:'button', onclick:()=>$('dlgRule').close()},'Cancel'), h('button',{type:'button', class:'primary', onclick: async () => {
+      const d = new FormData(f); const coins = d.get('coins').trim();
+      const body = {id, enabled: f.enabled.checked, live: f.live.checked, lo: +d.get('lo'), hi: +d.get('hi'), stop_c: +d.get('stop_c'), contracts: +d.get('contracts'), pricing: d.get('pricing'),
+        windows: d.get('windows').split(',').map(w => w.trim().split('-').map(Number)).filter(w => w.length === 2), coins: coins === 'all' ? 'all' : coins.split(',').map(x => x.trim().toUpperCase()).filter(Boolean)};
+      try { await api('/api/rule', body); $('dlgRule').close(); refresh(); } catch(e) { $('ruleErr').textContent = e.message; } }}, 'Save')));
+  $('dlgRule').showModal(); }
+
+$('btnSettings').onclick = async () => { CFG = await api('/api/config'); const f = $('formSettings'), p = CFG.paper, l = CFG.live, n = CFG.news;
+  f.replaceChildren(h('h2',null,'Paper execution'), h('div',{class:'grid'}, field('Order goes live after (ms)','place_latency_ms',p.place_latency_ms,'number'), field('Cancel takes (ms)','cancel_latency_ms',p.cancel_latency_ms,'number'), field('Stop sells below bid by (c)','stop_slip_c',p.stop_slip_c,'number')),
+    h('h2',{style:'margin-top:16px'},'Live trading limits'), h('div',{class:'grid'}, field('Bankroll ($)','bankroll_dollars',l.bankroll_dollars,'number'), field('Share of bankroll at risk at once','tail_fraction',l.tail_fraction,'number'), field('Daily loss limit ($)','max_day_loss_dollars',l.max_day_loss_dollars,'number'), field('Kill switch ($ per contract)','kill_switch_dollars_per_contract',l.kill_switch_dollars_per_contract,'number'), field('Largest order ($)','max_order_dollars',l.max_order_dollars,'number')),
+    h('h2',{style:'margin-top:16px'},'News'), h('div',{class:'grid'}, field('Skip news windows','skip',n.skip,'check'), field('Weekdays only','weekdays_only',n.weekdays_only,'check'), field('Times (ET)','times_et', n.times_et.join(', '))),
+    h('p',{class:'dim'}, 'Data source, recording mode, markets and the web address are set in config.json and need a restart.'), h('p',{class:'warn', id:'setErr'}, ''),
+    h('div',{class:'row'}, h('span',{class:'spacer'}), h('button',{type:'button', onclick:()=>$('dlgSettings').close()},'Cancel'), h('button',{type:'button', class:'primary', onclick: async () => { const d = new FormData(f);
+      const body = {paper:{place_latency_ms:d.get('place_latency_ms'), cancel_latency_ms:d.get('cancel_latency_ms'), stop_slip_c:d.get('stop_slip_c')},
+        live:{bankroll_dollars:d.get('bankroll_dollars'), tail_fraction:d.get('tail_fraction'), max_day_loss_dollars:d.get('max_day_loss_dollars'), kill_switch_dollars_per_contract:d.get('kill_switch_dollars_per_contract'), max_order_dollars:d.get('max_order_dollars')},
+        news:{skip:f.skip.checked, weekdays_only:f.weekdays_only.checked, times_et:d.get('times_et').split(',').map(x=>x.trim()).filter(Boolean)}};
+      try { await api('/api/settings', body); $('dlgSettings').close(); } catch(e) { $('setErr').textContent = e.message; } }}, 'Save')));
+  $('dlgSettings').showModal(); };
+$('btnCard').onclick = async () => { $('card').textContent = 'Building...'; $('dlgCard').showModal(); try { $('card').textContent = (await api('/api/scorecard', {})).text; } catch(e) { $('card').textContent = e.message; } };
+$('btnLive').onclick = async () => { if (!confirm('Turn LIVE trading on? Rules marked "Trade live" will place real orders from the next window.')) return; try { await api('/api/live', {enabled:true, clear_halt:true}); refresh(); } catch(e) { alert(e.message); } };
+$('btnHalt').onclick = async () => { if (!confirm('Stop live trading and cancel every open order?')) return; try { const r = await api('/api/halt', {}); alert(r.note); refresh(); } catch(e) { alert(e.message); } };
+refresh(); slow(); setInterval(refresh, 2000); setInterval(slow, 10000);
+</script>
+</body>
+</html>

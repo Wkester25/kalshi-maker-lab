@@ -1,0 +1,18 @@
+[Unit]
+Description=Kalshi Maker Lab
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=__USER__
+WorkingDirectory=__DIR__
+# Paper mode. To unlock the live switch, add --allow-live here deliberately, then: systemctl restart kalshi-maker-lab
+ExecStart=__DIR__/.venv/bin/python run.py
+Restart=always
+RestartSec=5
+Environment=PYTHONUNBUFFERED=1
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
