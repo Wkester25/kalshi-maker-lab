@@ -110,6 +110,13 @@ settlement average in the final minute), Pyth values, and each window's strike a
 The index feed is the settlement source for crypto. The Late Maker bot never had it; its exchange-average
 price lagged Kalshi by 1-8 s.
 
+## Analysis with Claude Code on the server
+
+`CLAUDE.md` briefs any Claude Code session started in this folder; `docs/HISTORY.md` and `docs/DATA.md` give
+it the findings so far and the data layout. `docs/CLAUDE_CODE_PROMPT.md` has a prompt to paste to start one.
+`tools/analyze.py` is the standard read-only report (health, results with error bars, loss rate against
+break-even, filled against unfilled bids).
+
 ## Daily scorecard and review
 
 `reports/latest.md` is rewritten just after midnight ET and on demand from the page. It is the input to the
@@ -131,6 +138,7 @@ kml/keys.py                API key storage and checks       -> keys.json, secret
 kml/store.py               SQLite store and statistics       -> data/lab.db
 kml/recorder.py            market data to disk               -> data/rec/
 kml/scorecard.py           daily report                      -> reports/
+tools/analyze.py           standard read-only analysis report
 tools/smoke_test.py        whole program against a fake exchange
 tools/replay_late_maker.py score the rules on the old Late Maker recordings
 deploy/                    Linux service files
