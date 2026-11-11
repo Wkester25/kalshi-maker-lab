@@ -87,7 +87,7 @@ DEFAULTS = {
     # window that opened after the Nov 11 fixes were running (orphaned positions,
     # roll-over reconnects, one-sided book rows). Earlier data mixed REST polling, restarts mid-window and
     # positions that never settled. Reports take --all to include it.
-    "score_since": "",
+    "score_since": "2026-11-11T12:30:00-05:00",
     # host 127.0.0.1 = this machine only; 0.0.0.0 = the local network too (set by: python run.py --setup)
     "web": {"host": "127.0.0.1", "port": 8787, "token": "", "username": "admin", "password_hash": ""},
     "rules": RULES,
