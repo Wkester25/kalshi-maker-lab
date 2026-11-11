@@ -7,7 +7,19 @@ USER_NAME="$(id -un)"
 PY="${PYTHON:-python3}"
 
 "$PY" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 10) else 1)' || { echo "Python 3.10+ is required"; exit 1; }
-[ -d .venv ] || "$PY" -m venv .venv
+if [ ! -x .venv/bin/pip ]; then
+  rm -rf .venv                                   # a half-made environment from an earlier failed run
+  if ! "$PY" -m venv .venv || [ ! -x .venv/bin/pip ]; then
+    rm -rf .venv
+    VER="$("$PY" -c 'import sys; print("%d.%d" % sys.version_info[:2])')"
+    echo
+    echo "Could not create the Python environment: the venv module is missing."
+    echo "On Debian or Ubuntu run one of these, then run this script again:"
+    echo "  sudo apt install -y python3-venv"
+    echo "  sudo apt install -y python${VER}-venv"
+    exit 1
+  fi
+fi
 .venv/bin/pip install -q --upgrade pip
 .venv/bin/pip install -q -r requirements.txt
 .venv/bin/python -m unittest discover -s tests >/dev/null 2>&1 && echo "self-tests passed" || echo "WARNING: self-tests failed (run: .venv/bin/python -m unittest discover -s tests -v)"
