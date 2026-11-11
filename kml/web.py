@@ -113,9 +113,9 @@ def make_app(app_obj) -> web.Application:
                    "live_flag": bool(r.get("live")), "kind": r["kind"], "group": r["group"], "note": r.get("note", ""),
                    "stats": {}, "today": {}, "ladder": {}}
             for mode in ("paper", "live"):
-                s = store.scoreboard(r["id"], mode)
+                s = store.scoreboard(r["id"], mode, since=C.score_since(cfg))
                 row["stats"][mode] = s
-                row["today"][mode] = store.scoreboard(r["id"], mode, since=day)
+                row["today"][mode] = store.scoreboard(r["id"], mode, since=max(day, C.score_since(cfg)))
                 if s.get("n"):
                     row["ladder"][mode] = ladder(s)
             out.append(row)

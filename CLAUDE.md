@@ -29,7 +29,7 @@ Read before doing anything else: `README.md`, `docs/HISTORY.md` (what was learne
 ```bash
 .venv/bin/python tools/analyze.py                 # standard health and results report (read-only)
 .venv/bin/python tools/analyze.py --days 3        # last three days only
-.venv/bin/python -m unittest discover -s tests    # 21 tests, no network
+.venv/bin/python -m unittest discover -s tests    # 26 tests, no network
 .venv/bin/python tools/smoke_test.py              # whole program against a fake exchange, ~45 s
 .venv/bin/python -m kml.scorecard                 # rewrite reports/latest.md
 journalctl -u kalshi-maker-lab -n 200 --no-pager  # service log

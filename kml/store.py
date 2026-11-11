@@ -38,6 +38,9 @@ class Store:
         self.lock = threading.Lock()
         with self.lock:
             self.db.executescript(SCHEMA)
+            cols = {r[1] for r in self.db.execute("PRAGMA table_info(trades)")}
+            if "restart" not in cols:          # 1 = the program restarted while this position was open
+                self.db.execute("ALTER TABLE trades ADD COLUMN restart INTEGER DEFAULT 0")
             self.db.commit()
 
     def _x(self, sql: str, args=()):
@@ -68,6 +71,9 @@ class Store:
         self._x("UPDATE trades SET exit=?, pnl_c=?, result=COALESCE(?, result), exit_px=?, t_exit=?, "
                 "fee_c=COALESCE(?, fee_c) WHERE id=?", (exit, pnl_c, result, exit_px, t_exit, fee_c, tid))
 
+    def mark_restart(self, tid: int):
+        self._x("UPDATE trades SET restart=1 WHERE id=?", (tid,))
+
     def order(self, **k):
         cols = ",".join(k)
         self._x(f"INSERT INTO orders({cols}) VALUES({','.join('?' * len(k))})", tuple(k.values()))
@@ -91,6 +97,10 @@ class Store:
     def open_trades(self):
         return self._q("SELECT * FROM trades WHERE exit IS NULL")
 
+    def ticker_trades(self, ticker: str):
+        """Every position already taken in this market (used to pick up where a restart left off)."""
+        return self._q("SELECT * FROM trades WHERE ticker=? ORDER BY id", (ticker,))
+
     def closed(self, rule: str, mode: str, since: float = 0.0):
         return self._q("SELECT close_ts, pnl_c, n, px, exit, coin, t_fill FROM trades WHERE rule=? AND mode=? AND "
                        "exit IS NOT NULL AND t_fill>=? ORDER BY t_fill", (rule, mode, since))
@@ -100,9 +110,9 @@ class Store:
                     (mode, since))
         return float(r[0]["s"])
 
-    def unfilled(self, rule: str, mode: str):
+    def unfilled(self, rule: str, mode: str, since: float = 0.0):
         return self._q("SELECT outcome, COUNT(*) n, AVG(won) won, AVG(px) px FROM orders WHERE rule=? AND mode=? "
-                       "AND won IS NOT NULL GROUP BY outcome", (rule, mode))
+                       "AND won IS NOT NULL AND t_place>=? GROUP BY outcome", (rule, mode, since))
 
     def scoreboard(self, rule: str, mode: str, since: float = 0.0) -> dict:
         return stats(self.closed(rule, mode, since))

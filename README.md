@@ -13,7 +13,7 @@ is to score a small set of fixed rules on fresh data. This program does that sco
 | Part | Status |
 | --- | --- |
 | Trading engine and paper fill model | Replayed over 3,031 recorded windows; matches the review's separately written simulator on all five rules |
-| Order book, rules, stop, settlement, stats, login, key page | 21 unit tests (`python -m unittest discover -s tests`) |
+| Order book, rules, stop, settlement, stats, login, key page | 26 unit tests (`python -m unittest discover -s tests`) |
 | WebSocket client, window roll-over, recorder, web page, login | Run end to end against a fake exchange (`python tools/smoke_test.py`); login flow checked in a real browser |
 | WebSocket message formats | Written from Kalshi's published docs. **Not yet run against the real exchange.** The program checks its WebSocket book against the REST book every minute and warns on the page if they disagree |
 | REST client (signing, orders, cancels) | Carried over unchanged from the Late Maker bot, which traded real money with it |

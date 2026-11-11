@@ -36,6 +36,12 @@ def taker_fee_c(n: float, px_mills: int) -> float:
     return math.ceil(round(7 * n * p * (1 - p), 6))
 
 
+def settle_pnl_c(side: str, px_mills: int, n: float, fee_c: float, result: str) -> tuple[bool, float]:
+    """(won, cents for the whole position) for a position held to settlement. result: 'yes' or 'no'."""
+    won = (result == "yes") == (side == "YES")
+    return won, (n * (FULL - px_mills) / 10 if won else -n * px_mills / 10) - fee_c
+
+
 class Market:
     def __init__(self, ticker: str, coin: str, group: str, open_ts: float, close_ts: float, strike: float | None,
                  use_yes_price: bool = True):
@@ -150,6 +156,23 @@ class Engine:
             if r.get("enabled") and m.coin in C.rule_coins(r, self.cfg):
                 sts.append(State(rule=r, market=m, mode=self.rule_mode(r)))
         self.states[m.ticker] = sts
+        self._resume(m, sts)
+
+    def _resume(self, m: Market, sts: list[State]):
+        """After a restart, pick up positions already taken in this market. An open one is held again (its stop
+        and settlement carry on) and flagged; a rule that already traded here does not enter a second time."""
+        prior = self.store.ticker_trades(m.ticker)
+        for st in sts:
+            for t in (x for x in prior if x["rule"] == st.rule["id"]):
+                st.done = True
+                if t["exit"] is not None or (t["mode"] == "live" and self.live_exec is None):
+                    continue                    # closed, or live with no way to manage it: settled from the result
+                st.mode, st.done = t["mode"], False
+                st.pos = Pos(side=t["side"], px=int(round(t["px"] * 10)), n=t["n"], t=t["t_fill"],
+                             fee_c=t["fee_c"] or 0.0, tid=t["id"])
+                self.store.mark_restart(t["id"])
+                self.event("info", f"resumed {t['mode']} {st.rule['id']} {t['side']} @ {t['px']:g} in {m.ticker} "
+                                   "after a restart")
 
     def drop_market(self, ticker: str):
         m = self.markets.pop(ticker, None)
@@ -445,8 +468,7 @@ class Engine:
             p = st.pos
             if not p:
                 continue
-            won = (result == "yes") == (p.side == "YES")
-            pnl = (p.n * (FULL - p.px) / 10 if won else -p.n * p.px / 10) - p.fee_c
+            won, pnl = settle_pnl_c(p.side, p.px, p.n, p.fee_c, result)
             self.store.close_trade(p.tid, "won" if won else "lost", pnl, result=result, t_exit=now)
             st.pos = None
         self.drop_market(ticker)

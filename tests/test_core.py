@@ -1,4 +1,5 @@
 """Run with:  python -m unittest discover -s tests -v      (no network, no keys needed)"""
+import asyncio
 import copy
 import json
 import os
@@ -210,6 +211,35 @@ class TestEngine(unittest.TestCase):
         self.assertEqual(eng.states[m.ticker][0].mode, "paper")
 
 
+class TestWebSocketSequence(unittest.IsolatedAsyncioTestCase):
+    def ws(self):
+        from kml.ws import KalshiWS
+        ev = []
+        w = KalshiWS("u", None, "k", "/p", on_data=lambda *a: True, on_event=lambda lv, msg: ev.append((lv, msg)))
+        w.reconnect = lambda why: asyncio.sleep(0)
+        w.sids["orderbook_delta"] = 3
+        return w, ev
+
+    async def test_update_reply_counts_in_the_sequence(self):
+        w, ev = self.ws()
+        w._handle(json.dumps({"type": "orderbook_delta", "sid": 3, "seq": 10, "msg": {}}), 1.0)
+        w._handle(json.dumps({"type": "ok", "id": 7, "sid": 3, "seq": 11, "msg": {"market_tickers": ["X"]}}), 1.1)
+        w._handle(json.dumps({"type": "orderbook_snapshot", "sid": 3, "seq": 12, "msg": {}}), 1.2)
+        self.assertEqual(w.gaps, 0)
+        self.assertTrue(any("reply carries seq" in m for _, m in ev))
+        w._handle(json.dumps({"type": "orderbook_delta", "sid": 3, "seq": 14, "msg": {}}), 1.3)
+        self.assertEqual(w.gaps, 1)                                   # a real gap still forces a reconnect
+
+    async def test_handler_errors_are_logged(self):
+        w, ev = self.ws()
+        w.on_data = lambda *a: 1 / 0
+        for i in range(12):
+            w._handle(json.dumps({"type": "trade", "sid": 4, "seq": i, "msg": {}}), 1.0)
+        errs = [m for lv, m in ev if lv == "error"]
+        self.assertEqual(len(errs), 2)                                # the 1st and the 10th
+        self.assertIn("ZeroDivisionError", errs[0])
+
+
 class TestStats(unittest.TestCase):
     def test_cluster_stats_and_ladder(self):
         rows = [{"close_ts": 900.0 * (i // 3), "pnl_c": 2.0, "n": 1, "px": 98.0, "exit": "won", "coin": "BTC",
@@ -235,6 +265,8 @@ class TestFeedAndWeb(unittest.IsolatedAsyncioTestCase):
         importlib.reload(CC)
         importlib.reload(A)
         A.ROOT = Path(self.tmp.name)
+        import kml.web as W
+        self._web_root, W.ROOT = W.ROOT, Path(self.tmp.name)         # the scorecard goes to the temp folder
         self.cfg = CC.load()
         self.cfg["source"] = "rest"
         self.app = A.App(self.cfg)
@@ -243,6 +275,8 @@ class TestFeedAndWeb(unittest.IsolatedAsyncioTestCase):
         e.add_market(self.m)
 
     async def asyncTearDown(self):
+        import kml.web as W
+        W.ROOT = self._web_root
         self.app.rec.close()
         self.app.store.db.close()
         self.tmp.cleanup()
@@ -400,6 +434,51 @@ class TestFeedAndWeb(unittest.IsolatedAsyncioTestCase):
             self.assertFalse(stored.exists())
             self.assertFalse(self.app.client.has_keys)
             self.assertEqual((await c.post("/api/restart", json={}, headers=hd)).status, 400)   # not a service here
+
+    async def test_one_sided_book_is_recorded_with_a_blank(self):
+        a, tk = self.app, self.m.ticker
+        a.on_ws("orderbook_snapshot", {"market_ticker": tk, "yes_dollars_fp": [["0.9900", "50.00"]]}, 1.0, None)
+        a.rec.flush()
+        rows = [ln for f in (Path(self.tmp.name) / "data" / "rec").rglob("top_*.csv") for ln in f.read_text().splitlines()]
+        self.assertTrue(any(r.endswith(f",{tk},99,,50,0") for r in rows), rows)
+
+    async def test_restart_resumes_open_positions_and_settles_orphans(self):
+        a, e, st = self.app, self.app.engine, self.app.store
+        rid = self.cfg["rules"][0]["id"]
+        tid = st.open_trade(rule=rid, mode="paper", ticker="KXBTC15M-NEW", coin="BTC", grp="crypto",
+                            close_ts=e.now() + 300, side="YES", px=99.3, n=1, kind="maker", t_place=1, t_fill=2,
+                            secs=600, fee_c=0)
+        old = st.open_trade(rule=rid, mode="paper", ticker="KXBTC15M-OLD", coin="BTC", grp="crypto",
+                            close_ts=e.now() - 600, side="NO", px=80.0, n=1, kind="maker", t_place=1, t_fill=2,
+                            secs=200, fee_c=0)
+        e.add_market(Market("KXBTC15M-NEW", "BTC", "crypto", e.now() - 600, e.now() + 300, 70000.0))
+        s0 = [x for x in e.states["KXBTC15M-NEW"] if x.rule["id"] == rid][0]
+        self.assertEqual((s0.pos.side, s0.pos.px, s0.pos.tid, s0.done), ("YES", 993, tid, False))
+        e.settle("KXBTC15M-NEW", "yes")
+        r = st._q("SELECT exit, pnl_c, restart FROM trades WHERE id=?", (tid,))[0]
+        self.assertEqual(r["exit"], "won")
+        self.assertAlmostEqual(r["pnl_c"], 0.7)
+        self.assertEqual(r["restart"], 1)
+        a.client.market = lambda tk: {"result": "yes"}            # the market the old position was in settled YES
+        a.stopping = False
+        task = asyncio.ensure_future(a.orphans())
+        await asyncio.sleep(0.05)
+        a.stopping = True
+        task.cancel()
+        r = st._q("SELECT exit, pnl_c, restart FROM trades WHERE id=?", (old,))[0]
+        self.assertEqual((r["exit"], r["pnl_c"], r["restart"]), ("lost", -80.0, 1))
+
+    async def test_rule_that_already_traded_does_not_enter_again(self):
+        e, st = self.app.engine, self.app.store
+        rid = self.cfg["rules"][0]["id"]
+        t = st.open_trade(rule=rid, mode="paper", ticker="KXBTC15M-AGAIN", coin="BTC", grp="crypto",
+                          close_ts=e.now() + 300, side="YES", px=97.0, n=1, kind="maker", t_place=1, t_fill=2,
+                          secs=600, fee_c=0)
+        st.close_trade(t, "stopped", -50.0)
+        e.add_market(Market("KXBTC15M-AGAIN", "BTC", "crypto", e.now() - 600, e.now() + 300, 70000.0))
+        s0 = [x for x in e.states["KXBTC15M-AGAIN"] if x.rule["id"] == rid][0]
+        self.assertTrue(s0.done)
+        self.assertIsNone(s0.pos)
 
     def test_password_hash(self):
         import kml.config as CC

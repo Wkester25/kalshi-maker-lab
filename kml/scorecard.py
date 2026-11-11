@@ -12,6 +12,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 
+from . import config as C
 from .engine import ET
 from .store import Store, ladder, stats
 
@@ -22,13 +23,14 @@ def _c(x, nd=2):
 
 def build(store: Store, cfg: dict) -> str:
     now = time.time()
+    since = C.score_since(cfg)
     L = [f"# Scorecard {datetime.fromtimestamp(now, ET):%Y-%m-%d %H:%M} ET", "",
          "Cents per contract. Ranges are 95%, with the standard error clustered by 15-minute slot. "
          "A rule earns real money only when its range stays above zero on data that did not choose its settings.", ""]
     for mode in ("paper", "live"):
         rows = []
         for r in cfg["rules"]:
-            s = store.scoreboard(r["id"], mode)
+            s = store.scoreboard(r["id"], mode, since)
             if not s.get("n"):
                 continue
             rng = f"{s['lo95_c']:+.2f} to {s['hi95_c']:+.2f}" if s.get("se_c") else "-"
@@ -37,12 +39,12 @@ def build(store: Store, cfg: dict) -> str:
                         f"{s['stopped']} | {s['avg_px']:.2f}c | {s['total_c'] / 100:+.2f} | "
                         f"{lad['contracts']} ({lad['why']}) |")
         if rows:
-            L += [f"## {mode.capitalize()} results since launch", "",
+            L += [f"## {mode.capitalize()} results since {datetime.fromtimestamp(since, ET):%Y-%m-%d %H:%M} ET", "",
                   "| Rule | Trades | Mean | 95% range | Won | Lost or stopped | Stopped | Avg entry | Total $ | "
                   "Size the evidence supports |", "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |"] + rows + [""]
     L += ["## By day (paper)", ""]
     for r in cfg["rules"]:
-        tr = store.closed(r["id"], "paper")
+        tr = store.closed(r["id"], "paper", since)
         if not tr:
             continue
         days: dict[str, list] = {}
@@ -55,8 +57,8 @@ def build(store: Store, cfg: dict) -> str:
           "selected against the rule.", ""]
     for r in cfg["rules"]:
         for mode in ("paper", "live"):
-            s = store.scoreboard(r["id"], mode)
-            u = store.unfilled(r["id"], mode)
+            s = store.scoreboard(r["id"], mode, since)
+            u = store.unfilled(r["id"], mode, since)
             if not s.get("n") or not u:
                 continue
             n = sum(x["n"] for x in u)

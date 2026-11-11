@@ -8,7 +8,7 @@ from pathlib import Path
 
 from . import config as C
 from .book import mills
-from .engine import ET, Engine, Market
+from .engine import ET, Engine, Market, settle_pnl_c
 from .kalshi_rest import Client, KalshiError, iso_ts, num
 from .live import LiveExec
 from .recorder import Recorder
@@ -166,6 +166,33 @@ class App:
                 m.strike = float(d["floor_strike"])
         except Exception:                                             # noqa: BLE001
             pass
+
+    async def orphans(self):
+        """Settle positions no running market owns: ones left open when the program stopped or restarted. They are
+        held to settlement (the stop could not be watched while it was down) and flagged with restart = 1, so the
+        analysis can show results with and without them. Dropping them instead would bias the score."""
+        while not self.stopping:
+            now = self.exch_now()
+            for t in self.store.open_trades():
+                if t["ticker"] in self.engine.markets or now < t["close_ts"] + 30:
+                    continue
+                try:
+                    d = await asyncio.to_thread(self.client.market, t["ticker"]) or {}
+                except Exception:                                     # noqa: BLE001
+                    continue
+                res = str(d.get("result", "")).lower()
+                if res in ("yes", "no"):
+                    won, pnl = settle_pnl_c(t["side"], int(round(t["px"] * 10)), t["n"], t["fee_c"] or 0.0, res)
+                    self.store.result(t["ticker"], res)
+                    self.store.close_trade(t["id"], "won" if won else "lost", pnl, result=res, t_exit=now)
+                elif now > t["close_ts"] + 3600:
+                    self.store.close_trade(t["id"], "unresolved", 0.0, t_exit=now)
+                else:
+                    continue
+                self.store.mark_restart(t["id"])
+                self.event("info", f"settled {t['mode']} {t['rule']} in {t['ticker']} left open by a restart: "
+                                   f"{res or 'no result'}")
+            await asyncio.sleep(60)
 
     async def results(self):
         while not self.stopping:
@@ -330,7 +357,7 @@ class App:
         if self.source == "ws" and not self.client.has_keys:
             self.event("warn", f"no API keys ({self.client.key_error}): using REST polling instead of the WebSocket")
             self.source = "rest"
-        tasks = [self.rotation(), self.results(), self.eval_loop(), self.housekeeping()]
+        tasks = [self.rotation(), self.results(), self.orphans(), self.eval_loop(), self.housekeeping()]
         if self.source == "ws":
             self.ws = KalshiWS(self.cfg["ws_url"], self.client.signer, self.client.key_id, self.cfg["ws_sign_path"],
                                self.on_ws, self.event, self.cfg.get("use_yes_price", True), on_raw=self.rec.raw)

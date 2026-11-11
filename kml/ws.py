@@ -43,6 +43,8 @@ class KalshiWS:
         self.gaps = 0
         self.unknown: dict[str, int] = {}
         self.errors: deque = deque(maxlen=20)
+        self.handler_errors: dict[str, int] = {}
+        self._seen_reply = False
 
     # ---- commands
     async def _send(self, cmd: str, params: dict, tag: tuple[str, str]):
@@ -138,6 +140,22 @@ class KalshiWS:
         except ValueError:
             return
         typ = d.get("type")
+        m = d.get("msg") if isinstance(d.get("msg"), dict) else {}
+        # Sequence numbers count every message on the order-book subscription, including Kalshi's "ok" reply to
+        # update_subscription. Checking only snapshots and deltas made each market added at a roll-over look like
+        # a lost message and forced a reconnect (about 13 per window, Nov 11).
+        sid, seq = d.get("sid", m.get("sid")), d.get("seq")
+        ob = self.sids.get("orderbook_delta")
+        if sid is not None and seq is not None and (typ in ("orderbook_snapshot", "orderbook_delta") or sid == ob):
+            if typ != "orderbook_delta" and typ != "orderbook_snapshot" and not self._seen_reply:
+                self._seen_reply = True
+                self.on_event("info", f"order-book {typ} reply carries seq {seq}: {text[:200]}")
+            last = self.seq.get(sid)
+            self.seq[sid] = seq
+            if last is not None and seq != last + 1:
+                self.gaps += 1
+                asyncio.ensure_future(self.reconnect(f"missed order-book messages (seq {last} -> {seq}, at {typ})"))
+                return
         if typ == "subscribed":
             m = d.get("msg") or {}
             ch = m.get("channel") or (self.pending.get(d.get("id"), ("", ""))[0])
@@ -158,24 +176,21 @@ class KalshiWS:
             if kind == "update" and self.ws and not self.ws.closed:      # start clean rather than guess the state
                 asyncio.ensure_future(self.reconnect(f"update on {ch} refused"))
             return
-        sid, seq = d.get("sid"), d.get("seq")
-        if sid is not None and seq is not None and typ in ("orderbook_snapshot", "orderbook_delta"):
-            last = self.seq.get(sid)
-            self.seq[sid] = seq
-            if last is not None and seq != last + 1:
-                self.gaps += 1
-                asyncio.ensure_future(self.reconnect(f"missed order-book messages (seq {last} -> {seq})"))
-                return
         try:
             handled = self.on_data(typ, d.get("msg") or {}, recv, d.get("sending_ts_ms"))
         except Exception as e:                                        # noqa: BLE001
             handled = True
-            self.errors.append((recv, f"handler {typ}: {type(e).__name__}: {e}"))
+            why = f"handler {typ}: {type(e).__name__}: {e}"
+            self.errors.append((recv, why))
+            k = why[:120]
+            self.handler_errors[k] = c = self.handler_errors.get(k, 0) + 1
+            if c in (1, 10, 100, 1000) or c % 10000 == 0:            # logged, but not once per message
+                self.on_event("error", f"WebSocket {why[:300]} ({c} so far)")
         if not handled:
             self.unknown[str(typ)] = self.unknown.get(str(typ), 0) + 1
 
     def status(self) -> dict:
         return {"connected": self.connected, "msgs": self.msgs, "age": round(time.time() - self.last_msg, 1) if
                 self.last_msg else None, "reconnects": self.reconnects, "gaps": self.gaps, "sids": dict(self.sids),
-                "unknown": dict(self.unknown), "errors": [f"{time.strftime('%H:%M:%S', time.localtime(t))} {e}"
+                "unknown": dict(self.unknown), "handler_errors": sum(self.handler_errors.values()), "errors": [f"{time.strftime('%H:%M:%S', time.localtime(t))} {e}"
                                                           for t, e in list(self.errors)[-5:]]}

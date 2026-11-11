@@ -83,6 +83,11 @@ DEFAULTS = {
              "extra": [{"weekday": 2, "time": "10:30", "group": "commodity", "why": "EIA petroleum"},
                        {"weekday": 3, "time": "10:30", "group": "commodity", "why": "EIA gas storage"}]},
     "eval_ms": 200,
+    # Results are scored from here on (ISO 8601 with offset, e.g. "2026-11-11T12:30:00-05:00"): set it to the first
+    # window that opened after the Nov 11 fixes were running (orphaned positions,
+    # roll-over reconnects, one-sided book rows). Earlier data mixed REST polling, restarts mid-window and
+    # positions that never settled. Reports take --all to include it.
+    "score_since": "",
     # host 127.0.0.1 = this machine only; 0.0.0.0 = the local network too (set by: python run.py --setup)
     "web": {"host": "127.0.0.1", "port": 8787, "token": "", "username": "admin", "password_hash": ""},
     "rules": RULES,
@@ -204,3 +209,13 @@ def coins(cfg: dict) -> dict[str, dict]:
 def rule_coins(rule: dict, cfg: dict) -> list[str]:
     allc = [c for c, v in coins(cfg).items() if v["group"] == rule["group"]]
     return allc if rule["coins"] == "all" else [c for c in rule["coins"] if c in allc]
+
+
+def score_since(cfg: dict) -> float:
+    """The unix time results are scored from ("score_since", ISO 8601 with an offset); 0 if unset."""
+    from datetime import datetime
+    v = cfg.get("score_since") or ""
+    try:
+        return datetime.fromisoformat(v).timestamp() if v else 0.0
+    except ValueError:
+        return 0.0

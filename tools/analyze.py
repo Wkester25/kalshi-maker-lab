@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Standard read-only report: health, then results per rule with slot-clustered error bars.
 
-  python tools/analyze.py                  everything in data/lab.db
+  python tools/analyze.py                  everything since the scoring start ("score_since" in kml/config.py)
   python tools/analyze.py --days 3         only trades filled in the last 3 days
+  python tools/analyze.py --all            include data from before the scoring start
   python tools/analyze.py --db other.db
 
 Safe to run while the program is running. Prints markdown.
@@ -22,6 +23,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
+from kml import config as C                   # noqa: E402
 from kml.store import ladder, stats          # noqa: E402
 
 try:
@@ -57,6 +59,7 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--db", default=str(ROOT / "data" / "lab.db"))
     ap.add_argument("--days", type=float, default=0)
+    ap.add_argument("--all", action="store_true", help="include data from before the scoring start")
     a = ap.parse_args()
     if not Path(a.db).exists():
         print(f"No database at {a.db}: the program hasn't recorded anything yet.")
@@ -66,9 +69,18 @@ def main() -> int:
     q = lambda sql, args=(): [dict(r) for r in db.execute(sql, args).fetchall()]   # noqa: E731
     now = time.time()
     since = now - a.days * 86400 if a.days else 0.0
+    over = {}
+    try:                                     # read-only: config.json may override score_since
+        over = json.loads((ROOT / "config.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        pass
+    start = 0.0 if a.all else C.score_since({**C.DEFAULTS, **{k: v for k, v in over.items() if k == "score_since"}})
+    since = max(since, start)
+    what = "all data" if not since else f"from {datetime.fromtimestamp(since, ET):%m-%d %H:%M} ET"
+    if start and since == start:
+        what += " (the scoring start; --all for earlier data)"
     L = [f"# Kalshi Maker Lab analysis, {datetime.fromtimestamp(now, ET):%Y-%m-%d %H:%M} ET",
-         f"Window: {'all data' if not a.days else f'last {a.days:g} days'}. Cents per contract. 95% ranges use "
-         "standard errors clustered by 15-minute slot.", ""]
+         f"Window: {what}. Cents per contract. 95% ranges use standard errors clustered by 15-minute slot.", ""]
 
     # ---------------- health
     L += ["## Health", ""]
@@ -103,9 +115,12 @@ def main() -> int:
     L.append("")
 
     # ---------------- results
-    rows = q("SELECT rule, mode, close_ts, pnl_c, n, px, exit, coin, t_fill, side, secs FROM trades "
+    has_restart = any(r["name"] == "restart" for r in q("PRAGMA table_info(trades)"))
+    rows = q("SELECT rule, mode, close_ts, pnl_c, n, px, exit, coin, t_fill, side, secs, "
+             f"{'restart' if has_restart else '0 AS restart'} FROM trades "
              "WHERE exit IS NOT NULL AND exit != 'unresolved' AND t_fill>=? ORDER BY t_fill", (since,))
-    open_n = q("SELECT COUNT(*) n FROM trades WHERE exit IS NULL")[0]["n"]
+    open_n = q("SELECT COUNT(*) n FROM trades WHERE exit IS NULL AND t_fill>=?", (since,))[0]["n"]
+    unres = q("SELECT rule, COUNT(*) n FROM trades WHERE exit='unresolved' AND t_fill>=? GROUP BY rule", (since,))
     by = defaultdict(list)
     for r in rows:
         by[(r["rule"], r["mode"])].append(r)
@@ -120,7 +135,18 @@ def main() -> int:
                        s["stopped"], f"{s['avg_px']:.2f}", f"{s['total_c'] / 100:+.2f}", ladder(s)["contracts"]])
         L.append(table(["Rule", "Mode", "Trades", "Slots", "Mean", "95% range", "Won", "Bad", "Stopped", "Avg entry",
                         "Total $", "Size supported"], tr))
-        L += ["", f"{open_n} positions still open.", "",
+        L += ["", f"{open_n} positions still open."]
+        if unres:
+            L.append("Unresolved (no market result, left out above): " +
+                     ", ".join(f"{u['rule']} {u['n']}" for u in unres) + ".")
+        rs = [(k, rr) for k, rr in sorted(by.items()) if any(r["restart"] for r in rr)]
+        if rs:
+            L += ["", "Positions open across a restart are held to settlement and counted above. Without them:"]
+            for (rule, mode), rr in rs:
+                k = [r for r in rr if not r["restart"]]
+                L.append(f"- {rule} ({mode}): {sum(1 for r in rr if r['restart'])} restart-affected; "
+                         f"{c(stats(k)['mean_c']) if k else '-'} on the other {len(k)}")
+        L += ["",
               "## Loss rate against break-even", "",
               "Wins are small and losses large, so the mean's range understates the risk while losses are rare. "
               "This compares the loss rate with the rate the rule can afford.", ""]

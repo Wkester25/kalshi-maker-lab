@@ -17,6 +17,7 @@ Prices are in cents (0-100) unless stated. "Maker side" means the resting order 
 | exit_px, t_exit, pnl_c | stop price, exit time, result in cents for the whole position (divide by n) |
 | result | market result `yes`/`no` |
 | feat | JSON snapshot at the fill: secs, spread, bid_size, ask_size, imb (our side's share of top-of-book size), flow_sell_5s / flow_buy_5s (contracts traded to/against our side in the last 5 s), and for crypto index, strike, dist_bp, index_age, settle_avg, settle_n |
+| restart | 1 if the program restarted while the position was open (added Nov 11). It is held to settlement and counted; `tools/analyze.py` also shows results without these |
 
 ### orders: every order that ended without filling
 `rule, mode, ticker, coin, close_ts, side, px, n, t_place, t_end, secs, outcome (cancelled/expired), queue
@@ -47,7 +48,7 @@ latency. Replays must order events by `recv_ms`.
 
 | File | Columns |
 | --- | --- |
-| `top_*.csv` | recv_ms, exch_ms, ticker, yes_bid, yes_ask, bid_size, ask_size: one row per top-of-book change |
+| `top_*.csv` | recv_ms, exch_ms, ticker, yes_bid, yes_ask, bid_size, ask_size: one row per top-of-book change. An empty side is a blank price with size 0. **Before the Nov 11 fix, one-sided states were not written at all**, so in those files a price can look stale while that side was actually empty (mostly the final minutes) |
 | `trades_*.csv` | recv_ms, ts_ms (exchange), ticker, yes_price, count, taker_side (`no` = maker bought YES) |
 | `index_*.csv` | recv_ms, index_id (BRTI = BTC, ETHUSD_RTI, ...), value, src_ms, avg60, avg60_n, settle_avg, settle_n (final minute only: the running settlement average and its tick count) |
 | `pyth_*.csv` | recv_ms, underlying (e.g. Metal.XAU/USD), value, src_ms: at most one row per second each |

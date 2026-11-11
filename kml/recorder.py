@@ -83,8 +83,8 @@ class Recorder:
         if self.last_top.get(ticker) == key:
             return
         self.last_top[ticker] = key
-        self._w("top", f"{recv * 1000:.0f},{book.exch_ms},{ticker},{'' if bb is None else bb / 10:g},"
-                       f"{'' if ba is None else ba / 10:g},{bs:g},{as_:g}")
+        px = lambda m: "" if m is None else f"{m / 10:g}"                # noqa: E731  (an empty side is a blank)
+        self._w("top", f"{recv * 1000:.0f},{book.exch_ms},{ticker},{px(bb)},{px(ba)},{bs:g},{as_:g}")
 
     def trade(self, recv: float, ts_ms, ticker: str, yes_c: float, count: float, taker_side: str):
         self._w("trades", f"{recv * 1000:.0f},{ts_ms},{ticker},{yes_c:g},{count:g},{taker_side}")
